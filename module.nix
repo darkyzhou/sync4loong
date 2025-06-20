@@ -43,6 +43,18 @@ in
       description = "Group under which sync4loong runs.";
     };
 
+    mkUser = mkOption {
+      type = types.bool;
+      default = true;
+      description = "Whether to create the sync4loong user account.";
+    };
+
+    mkGroup = mkOption {
+      type = types.bool;
+      default = true;
+      description = "Whether to create the sync4loong group.";
+    };
+
     dataDir = mkOption {
       type = types.path;
       default = "/var/lib/sync4loong";
@@ -51,15 +63,19 @@ in
   };
 
   config = mkIf cfg.enable {
-    users.users.${cfg.user} = {
-      isSystemUser = true;
-      group = cfg.group;
-      home = cfg.dataDir;
-      createHome = true;
-      description = "sync4loong daemon user";
+    users.users = mkIf cfg.mkUser {
+      ${cfg.user} = {
+        isSystemUser = true;
+        group = cfg.group;
+        home = cfg.dataDir;
+        createHome = true;
+        description = "sync4loong daemon user";
+      };
     };
 
-    users.groups.${cfg.group} = { };
+    users.groups = mkIf cfg.mkGroup {
+      ${cfg.group} = { };
+    };
 
     systemd.services.sync4loong = {
       description = "Sync4loong daemon - File synchronization to S3";
