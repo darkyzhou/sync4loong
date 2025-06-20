@@ -50,12 +50,6 @@ in
       default = true;
       description = "Whether to create the sync4loong group.";
     };
-
-    dataDir = mkOption {
-      type = types.path;
-      default = "/var/lib/sync4loong";
-      description = "Directory where sync4loong stores its data.";
-    };
   };
 
   config = mkIf cfg.enable {
@@ -63,8 +57,6 @@ in
       ${cfg.user} = {
         isSystemUser = true;
         group = cfg.group;
-        home = cfg.dataDir;
-        createHome = true;
         description = "sync4loong daemon user";
       };
     };
@@ -84,13 +76,11 @@ in
         Type = "exec";
         User = cfg.user;
         Group = cfg.group;
-        WorkingDirectory = cfg.dataDir;
 
         NoNewPrivileges = true;
         PrivateTmp = false;
         ProtectSystem = "strict";
         ProtectHome = true;
-        ReadWritePaths = [ cfg.dataDir ];
 
         Restart = "always";
         RestartSec = "10s";
@@ -109,16 +99,9 @@ in
       script = ''
         exec ${cfg.package}/bin/sync4loong-daemon --config ${configFile}
       '';
-
-      preStart = ''
-        mkdir -p ${cfg.dataDir}
-        chown ${cfg.user}:${cfg.group} ${cfg.dataDir}
-        chmod 755 ${cfg.dataDir}
-      '';
     };
 
     environment.systemPackages = [
-      cfg.package
       (pkgs.writeShellScriptBin "sync4loong-publish" ''
         exec ${cfg.package}/bin/sync4loong-publish --config ${configFile} "$@"
       '')
