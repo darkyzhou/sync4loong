@@ -20,18 +20,14 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1750134718,
-        "narHash": "sha256-v263g4GbxXv87hMXMCpjkIxd/viIF7p3JpJrwgKdNiI=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "9e83b64f727c88a7711a2c463a7b16eedb69a84c",
-        "type": "github"
+        "lastModified": 1750417130,
+        "narHash": "sha256-oPhHkCzPnNsj1iJyCxxOf+9wbwZWAa75QyEKV9rrTU4=",
+        "type": "tarball",
+        "url": "https://seele.gg/https://github.com/loongson-community/nixpkgs/archive/7da462cc6ad05d7ed17bae930ceb86052ab34c50.zip"
       },
       "original": {
-        "owner": "NixOS",
-        "ref": "nixos-unstable",
-        "repo": "nixpkgs",
-        "type": "github"
+        "type": "tarball",
+        "url": "https://seele.gg/https://github.com/loongson-community/nixpkgs/archive/7da462cc6ad05d7ed17bae930ceb86052ab34c50.zip"
       }
     },
     "root": {

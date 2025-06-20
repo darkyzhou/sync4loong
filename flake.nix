@@ -2,7 +2,7 @@
   description = "sync4loong";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "https://seele.gg/https://github.com/loongson-community/nixpkgs/archive/7da462cc6ad05d7ed17bae930ceb86052ab34c50.zip";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -22,7 +22,6 @@
         "aarch64-darwin"
         "loongarch64-linux"
       ];
-
     in
     flake-utils.lib.eachSystem supportedSystems (
       system:
