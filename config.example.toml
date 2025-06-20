@@ -1,0 +1,24 @@
+[redis]
+addr = "localhost:6379"
+password = ""
+db = 0
+
+[s3]
+endpoint = "https://example.com"
+region = "us-east-1"
+bucket = "nix4loong"
+access_key = "YOUR_ACCESS_KEY_HERE"
+secret_key = "YOUR_SECRET_KEY_HERE"
+
+[daemon]
+concurrency = 4
+log_level = "info"
+ssh_command = "ssh user@host 'sudo nixos-rebuild switch'"
+ssh_debounce_minutes = 5
+ssh_timeout_minutes = 10
+enable_ssh_task = false
+delete_after_sync = false
+
+[publish]
+max_retry = 3
+timeout_minutes = 30
