@@ -14,11 +14,7 @@ in
   options.services.sync4loong = {
     enable = mkEnableOption "sync4loong daemon";
 
-    package = mkOption {
-      type = types.package;
-      default = pkgs.callPackage ./package.nix { };
-      description = "The sync4loong package to use.";
-    };
+    package = lib.mkPackageOption pkgs.system "nix4loong" { default = "nix4loong"; };
 
     settings = mkOption {
       type = settingsFormat.type;
