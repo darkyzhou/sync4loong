@@ -80,7 +80,7 @@ in
 
         NoNewPrivileges = true;
         PrivateTmp = false;
-        ProtectSystem = "strict";
+        ProtectSystem = "full";
         ProtectHome = true;
 
         Restart = "always";
