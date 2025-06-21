@@ -98,7 +98,7 @@ in
       };
 
       script = ''
-        exec ${cfg.package}/bin/sync4loong-daemon --config ${configFile}
+        exec ${cfg.package}/bin/sync4loong --config ${configFile}
       '';
     };
   };
