@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -40,6 +41,12 @@ type CheckResponse struct {
 type ErrorResponse struct {
 	Error           string   `json:"error"`
 	AllowedPrefixes []string `json:"allowed_prefixes,omitempty"`
+}
+
+type ClearCacheResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	Error   string `json:"error,omitempty"`
 }
 
 func NewHTTPHandler(config *config.Config, cache *cache.FileExistenceCache) (*HTTPHandler, error) {
@@ -186,5 +193,69 @@ func (h *HTTPHandler) sendCheckErrorResponse(w http.ResponseWriter, statusCode i
 	w.WriteHeader(statusCode)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		h.logger.Error("failed to encode check error response", err, nil)
+	}
+}
+
+func (h *HTTPHandler) ClearCacheHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		h.sendClearCacheErrorResponse(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var s3Key string
+
+	path := r.URL.Path
+	if strings.HasPrefix(path, "/clear-cache/") {
+		s3Key = strings.TrimPrefix(path, "/clear-cache/")
+	} else {
+		s3Key = r.URL.Query().Get("key")
+	}
+
+	if err := h.cache.ClearCache(r.Context(), s3Key); err != nil {
+		if strings.Contains(err.Error(), "not allowed") || strings.Contains(err.Error(), "invalid") {
+			h.sendClearCacheErrorResponse(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		h.logger.Error("failed to clear cache", err, map[string]any{
+			"s3_key": s3Key,
+		})
+		h.sendClearCacheErrorResponse(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	var message string
+	if s3Key == "" {
+		message = "all cache cleared successfully"
+		h.logger.Info("all cache cleared via HTTP", nil)
+	} else {
+		message = fmt.Sprintf("cache cleared for key: %s", s3Key)
+		h.logger.Info("cache cleared via HTTP", map[string]any{
+			"s3_key": s3Key,
+		})
+	}
+
+	response := ClearCacheResponse{
+		Success: true,
+		Message: message,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		h.logger.Error("failed to encode clear cache response", err, nil)
+	}
+}
+
+func (h *HTTPHandler) sendClearCacheErrorResponse(w http.ResponseWriter, statusCode int, message string) {
+	response := ClearCacheResponse{
+		Success: false,
+		Error:   message,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		h.logger.Error("failed to encode clear cache error response", err, nil)
 	}
 }

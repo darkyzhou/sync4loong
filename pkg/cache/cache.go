@@ -208,6 +208,37 @@ func (c *FileExistenceCache) setCachedInfo(ctx context.Context, cacheKey string,
 	return c.redisClient.Set(ctx, cacheKey, data, 0).Err()
 }
 
+func (c *FileExistenceCache) ClearCache(ctx context.Context, s3Key string) error {
+	if s3Key != "" {
+		if err := c.validateS3Key(s3Key); err != nil {
+			return err
+		}
+
+		if c.redisClient == nil {
+			return nil
+		}
+
+		cacheKey := c.getCacheKey(s3Key)
+		return c.redisClient.Del(ctx, cacheKey).Err()
+	}
+
+	if c.redisClient == nil {
+		return nil
+	}
+
+	pattern := fmt.Sprintf("file_exists:%s:*", c.config.S3.Bucket)
+	keys, err := c.redisClient.Keys(ctx, pattern).Result()
+	if err != nil {
+		return err
+	}
+
+	if len(keys) > 0 {
+		return c.redisClient.Del(ctx, keys...).Err()
+	}
+
+	return nil
+}
+
 func (c *FileExistenceCache) checkS3FileExists(ctx context.Context, s3Key string) (bool, int64, error) {
 	input := &s3.HeadObjectInput{
 		Bucket: aws.String(c.config.S3.Bucket),

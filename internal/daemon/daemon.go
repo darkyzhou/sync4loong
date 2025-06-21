@@ -67,6 +67,8 @@ func NewDaemonService(config *config.Config) (*DaemonService, error) {
 	mux.HandleFunc("/publish", httpHandler.PublishHandler)
 	mux.HandleFunc("/check/", httpHandler.CheckFileHandler)
 	mux.HandleFunc("/check", httpHandler.CheckFileHandler)
+	mux.HandleFunc("/clear-cache/", httpHandler.ClearCacheHandler)
+	mux.HandleFunc("/clear-cache", httpHandler.ClearCacheHandler)
 
 	httpServer := &http.Server{
 		Addr:    config.HTTP.Addr,
