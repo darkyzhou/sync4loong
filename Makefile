@@ -1,33 +1,17 @@
-.PHONY: all build clean test fmt lint deps
-.PHONY: run-daemon run-publish
-.PHONY: build-all build-publish build-daemon
+.PHONY: build run clean test fmt lint deps
 
 BUILD_DIR=bin
-PUBLISH_BINARY=publish
 DAEMON_BINARY=daemon
 LDFLAGS=-ldflags="-s -w"
 
-all: build-all
-
-build-all: build-publish build-daemon
-
-build-publish:
-	@echo "Building publish CLI..."
-	@mkdir -p $(BUILD_DIR)
-	go build $(LDFLAGS) -o $(BUILD_DIR)/$(PUBLISH_BINARY) ./cmd/publish
-
-build-daemon:
+build:
 	@echo "Building daemon..."
 	@mkdir -p $(BUILD_DIR)
 	go build $(LDFLAGS) -o $(BUILD_DIR)/$(DAEMON_BINARY) ./cmd/daemon
 
-run-daemon:
+run:
 	@echo "Running daemon..."
 	go run ./cmd/daemon --config ./config.toml
-
-run-publish:
-	@echo "Running publish..."
-	go run ./cmd/publish --config ./config.toml $(ARGS)
 
 clean:
 	@echo "Cleaning..."

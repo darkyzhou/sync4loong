@@ -12,6 +12,8 @@ type Config struct {
 	S3      S3Config      `mapstructure:"s3" validate:"required"`
 	Daemon  DaemonConfig  `mapstructure:"daemon" validate:"required"`
 	Publish PublishConfig `mapstructure:"publish" validate:"required"`
+	HTTP    HTTPConfig    `mapstructure:"http" validate:"required"`
+	Cache   CacheConfig   `mapstructure:"cache" validate:"required"`
 }
 
 type RedisConfig struct {
@@ -41,6 +43,15 @@ type DaemonConfig struct {
 type PublishConfig struct {
 	MaxRetry       int `mapstructure:"max_retry" validate:"required,min=0,max=10"`
 	TimeoutMinutes int `mapstructure:"timeout_minutes" validate:"required,min=1,max=1440"`
+}
+
+type HTTPConfig struct {
+	Addr string `mapstructure:"addr" validate:"required,hostname_port"`
+}
+
+type CacheConfig struct {
+	MaxConcurrentS3Checks int      `mapstructure:"max_concurrent_s3_checks" validate:"min=1,max=100"`
+	AllowedPrefixes       []string `mapstructure:"allowed_prefixes" validate:"required,min=1"`
 }
 
 func LoadFromFile(filename string) (*Config, error) {
@@ -88,4 +99,9 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("publish.max_retry", 3)
 	v.SetDefault("publish.timeout_minutes", 30)
+
+	v.SetDefault("http.addr", ":8080")
+
+	v.SetDefault("cache.max_concurrent_s3_checks", 10)
+	v.SetDefault("cache.allowed_prefixes", []string{"store/"})
 }

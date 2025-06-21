@@ -4,8 +4,7 @@ A file synchronization system built with Go and Asynq for the nix4loong CI infra
 
 ## Components
 
-- **publish**: CLI tool for submitting file sync tasks to the queue
-- **daemon**: Background worker that processes sync tasks and uploads files to S3
+- **daemon**: Background worker that processes sync tasks and uploads files to S3, includes HTTP API for task submission
 
 ## Quick Start
 
@@ -21,8 +20,20 @@ Start the daemon:
 make run-daemon
 ```
 
-Publish a sync task:
+Publish a sync task via HTTP API:
 
 ```bash
-make run-publish ARGS="--prefix ... --folder ..."
+curl -X POST http://localhost:8080/publish \
+  -H "Content-Type: application/json" \
+  -d '{"folder_path": "/path/to/folder", "prefix": "store/"}'
+```
+
+Check if a file exists in S3 (with Redis caching):
+
+```bash
+# Using path parameter
+curl -X GET http://localhost:8080/check/store/bin/bash
+
+# Using query parameter  
+curl -X GET "http://localhost:8080/check?key=store/bin/bash"
 ```

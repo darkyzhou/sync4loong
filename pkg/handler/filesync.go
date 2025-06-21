@@ -15,6 +15,7 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 
+	"sync4loong/pkg/cache"
 	"sync4loong/pkg/config"
 	"sync4loong/pkg/logger"
 	"sync4loong/pkg/ssh"
@@ -26,9 +27,10 @@ type FileSyncHandler struct {
 	config       *config.Config
 	logger       *logger.Logger
 	sshDebouncer *ssh.Debouncer
+	cache        *cache.FileExistenceCache
 }
 
-func NewFileSyncHandler(s3Client *s3.S3, config *config.Config, redisClient *redis.Client, asyncClient *asynq.Client) *FileSyncHandler {
+func NewFileSyncHandler(s3Client *s3.S3, config *config.Config, redisClient *redis.Client, asyncClient *asynq.Client, cache *cache.FileExistenceCache) *FileSyncHandler {
 	sshDebouncer := ssh.NewDebouncer(redisClient, asyncClient, &config.Daemon, logger.NewDefault())
 
 	return &FileSyncHandler{
@@ -36,6 +38,7 @@ func NewFileSyncHandler(s3Client *s3.S3, config *config.Config, redisClient *red
 		config:       config,
 		logger:       logger.NewDefault(),
 		sshDebouncer: sshDebouncer,
+		cache:        cache,
 	}
 }
 
@@ -220,6 +223,12 @@ func (h *FileSyncHandler) uploadFile(ctx context.Context, filePath, s3Key string
 		}
 	}()
 
+	fileStat, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("stat file: %w", err)
+	}
+	fileSize := fileStat.Size()
+
 	contentType := h.getContentType(filePath)
 
 	_, err = h.s3Client.PutObjectWithContext(ctx, &s3.PutObjectInput{
@@ -235,6 +244,14 @@ func (h *FileSyncHandler) uploadFile(ctx context.Context, filePath, s3Key string
 			"s3_key":       s3Key,
 			"content_type": contentType,
 		})
+
+		if h.cache != nil {
+			if err := h.cache.SetFileExists(ctx, s3Key, fileSize); err != nil {
+				h.logger.Error("failed to update cache after upload", err, map[string]any{
+					"s3_key": s3Key,
+				})
+			}
+		}
 	}
 
 	return err

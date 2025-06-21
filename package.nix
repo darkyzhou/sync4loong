@@ -20,7 +20,6 @@ buildGoModule {
 
   subPackages = [
     "cmd/daemon"
-    "cmd/publish"
   ];
 
   ldflags = [
@@ -35,9 +34,8 @@ buildGoModule {
   '';
 
   postInstall = ''
-    # Rename binaries to match expected names
+    # Rename binary to match expected name
     mv $out/bin/daemon $out/bin/sync4loong-daemon
-    mv $out/bin/publish $out/bin/sync4loong-publish
 
     # Install example config
     mkdir -p $out/share/sync4loong
@@ -45,7 +43,7 @@ buildGoModule {
   '';
 
   meta = with lib; {
-    description = "A file synchronization system based on Go and Asynq for syncing local folders to S3 storage";
+    description = "A file synchronization system with HTTP API based on Go and Asynq for syncing local folders to S3 storage";
     homepage = "https://github.com/darkyzhou/sync4loong";
     license = licenses.mit;
     maintainers = [ ];

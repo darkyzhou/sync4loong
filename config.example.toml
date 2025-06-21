@@ -22,3 +22,10 @@ delete_after_sync = false
 [publish]
 max_retry = 3
 timeout_minutes = 30
+
+[http]
+addr = ":8080"
+
+[cache]
+max_concurrent_s3_checks = 10
+allowed_prefixes = ["store/", "nix/"]

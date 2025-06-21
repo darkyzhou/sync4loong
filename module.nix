@@ -24,6 +24,7 @@ in
 
         S3 configuration is required for the daemon to function.
         SSH settings are optional but enable remote execution after sync.
+        HTTP configuration is optional (defaults to :8080).
       '';
     };
 
@@ -66,7 +67,7 @@ in
     };
 
     systemd.services.sync4loong = {
-      description = "Sync4loong daemon - File synchronization to S3";
+      description = "Sync4loong daemon - File synchronization to S3 with HTTP API";
 
       wantedBy = [ "multi-user.target" ];
       after = [ "network-online.target" ];
@@ -100,11 +101,5 @@ in
         exec ${cfg.package}/bin/sync4loong-daemon --config ${configFile}
       '';
     };
-
-    environment.systemPackages = [
-      (pkgs.writeShellScriptBin "sync4loong-publish" ''
-        exec ${cfg.package}/bin/sync4loong-publish --config ${configFile} "$@"
-      '')
-    ];
   };
 }
