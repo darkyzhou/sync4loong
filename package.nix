@@ -35,7 +35,7 @@ buildGoModule {
 
   postInstall = ''
     # Rename binary to match expected name
-    mv $out/bin/daemon $out/bin/sync4loong-daemon
+    mv $out/bin/daemon $out/bin/sync4loong
 
     # Install example config
     mkdir -p $out/share/sync4loong
@@ -47,7 +47,7 @@ buildGoModule {
     homepage = "https://github.com/darkyzhou/sync4loong";
     license = licenses.mit;
     maintainers = [ ];
+    mainProgram = "sync4loong";
     platforms = platforms.linux ++ platforms.darwin;
-    mainProgram = "sync4loong-daemon";
   };
 }
