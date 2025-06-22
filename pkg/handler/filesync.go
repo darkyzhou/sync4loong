@@ -138,11 +138,6 @@ func (h *FileSyncHandler) uploadFiles(ctx context.Context, files []string, paylo
 			continue
 		}
 
-		h.logger.Info("uploaded file successfully", map[string]any{
-			"file_path": filePath,
-			"s3_key":    s3Key,
-		})
-
 		if h.config.Daemon.DeleteAfterSync {
 			if err := h.deleteFile(filePath); err != nil {
 				h.logger.Error("failed to delete file after sync", err, map[string]any{
@@ -327,12 +322,6 @@ func (h *FileSyncHandler) uploadFileOnce(ctx context.Context, filePath, s3Key st
 		if _, err := file.Seek(0, 0); err != nil {
 			return fmt.Errorf("seek file for upload: %w", err)
 		}
-
-		h.logger.Info("calculated MD5 for integrity check", map[string]any{
-			"file_path": filePath,
-			"s3_key":    s3Key,
-			"md5_hash":  md5Hash,
-		})
 	}
 
 	_, err = h.s3Client.PutObjectWithContext(uploadCtx, putObjectInput)
@@ -414,9 +403,6 @@ func (h *FileSyncHandler) cleanupEmptyDirectories(dirPath string) {
 
 	if len(entries) == 0 {
 		if err := os.Remove(dirPath); err == nil {
-			h.logger.Info("removed empty directory", map[string]any{
-				"dir_path": dirPath,
-			})
 			h.cleanupEmptyDirectories(filepath.Dir(dirPath))
 		}
 	}
