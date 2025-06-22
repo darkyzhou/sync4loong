@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"errors"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -274,6 +276,16 @@ func (h *FileSyncHandler) uploadFile(ctx context.Context, filePath, s3Key string
 }
 
 func (h *FileSyncHandler) uploadFileOnce(ctx context.Context, filePath, s3Key string) error {
+	timeout := time.Duration(h.config.S3.FileUploadTimeoutSeconds) * time.Second
+	uploadCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	h.logger.Info("starting file upload with timeout", map[string]any{
+		"file_path":       filePath,
+		"s3_key":          s3Key,
+		"timeout_seconds": h.config.S3.FileUploadTimeoutSeconds,
+	})
+
 	file, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("open file: %w", err)
@@ -323,8 +335,11 @@ func (h *FileSyncHandler) uploadFileOnce(ctx context.Context, filePath, s3Key st
 		})
 	}
 
-	_, err = h.s3Client.PutObjectWithContext(ctx, putObjectInput)
+	_, err = h.s3Client.PutObjectWithContext(uploadCtx, putObjectInput)
 	if err != nil {
+		if uploadCtx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("upload timed out after %d seconds: %w", h.config.S3.FileUploadTimeoutSeconds, err)
+		}
 		return fmt.Errorf("put object: %w", err)
 	}
 
@@ -352,8 +367,12 @@ func (h *FileSyncHandler) isRetryableError(err error) bool {
 		return false
 	}
 
-	// First check AWS-specific error codes
-	if aerr, ok := err.(awserr.Error); ok {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+
+	var aerr awserr.Error
+	if errors.As(err, &aerr) {
 		switch aerr.Code() {
 		case "RequestTimeout", "ServiceUnavailable", "Throttling", "ThrottlingException",
 			"ProvisionedThroughputExceededException", "RequestTimeTooSkewed":
@@ -361,11 +380,9 @@ func (h *FileSyncHandler) isRetryableError(err error) bool {
 		case "InvalidAccessKeyId", "SignatureDoesNotMatch", "NoSuchBucket", "AccessDenied":
 			return false
 		}
-		// Don't return false for unknown AWS error codes, continue to string check
 	}
 
-	// Check error message for common retryable patterns
-	errStr := err.Error()
+	errStr := strings.ToLower(err.Error())
 	if strings.Contains(errStr, "connection reset") ||
 		strings.Contains(errStr, "connection refused") ||
 		strings.Contains(errStr, "timeout") ||

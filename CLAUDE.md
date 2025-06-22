@@ -8,4 +8,4 @@
 - Refer to @DESIGN.md for overall design of the project.
 - Remember to also update module.nix if config items are updated.
 - Run `make fmt` to reformat codes after updating files.
-- Run `make lint` and `make build-all` to make sure changes doesn't come with warnings or errors.
+- Run `make lint` and `make build` to make sure changes doesn't come with warnings or errors.
