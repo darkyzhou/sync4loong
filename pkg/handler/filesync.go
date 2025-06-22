@@ -2,12 +2,16 @@ package handler
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -211,6 +215,65 @@ func (h *FileSyncHandler) getContentType(filePath string) string {
 }
 
 func (h *FileSyncHandler) uploadFile(ctx context.Context, filePath, s3Key string) error {
+	var lastErr error
+	retryCount := h.config.S3.FileUploadRetryCount
+	retryDelay := time.Duration(h.config.S3.FileUploadRetryDelaySeconds) * time.Second
+
+	for attempt := 0; attempt <= retryCount; attempt++ {
+		if attempt > 0 {
+			h.logger.Info("retrying file upload", map[string]any{
+				"file_path":    filePath,
+				"s3_key":       s3Key,
+				"attempt":      attempt + 1,
+				"max_attempts": retryCount + 1,
+			})
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(retryDelay):
+			}
+
+			retryDelay *= 2
+		}
+
+		err := h.uploadFileOnce(ctx, filePath, s3Key)
+		if err == nil {
+			h.logger.Info("uploaded file successfully", map[string]any{
+				"file_path": filePath,
+				"s3_key":    s3Key,
+				"attempts":  attempt + 1,
+			})
+			return nil
+		}
+
+		lastErr = err
+
+		if !h.isRetryableError(err) {
+			h.logger.Error("non-retryable error, giving up", err, map[string]any{
+				"file_path": filePath,
+				"s3_key":    s3Key,
+				"attempt":   attempt + 1,
+			})
+			return err
+		}
+
+		h.logger.Error("retryable error occurred", err, map[string]any{
+			"file_path": filePath,
+			"s3_key":    s3Key,
+			"attempt":   attempt + 1,
+		})
+	}
+
+	h.logger.Error("max retry attempts exceeded", lastErr, map[string]any{
+		"file_path":    filePath,
+		"s3_key":       s3Key,
+		"max_attempts": retryCount + 1,
+	})
+	return fmt.Errorf("upload failed after %d attempts: %w", retryCount+1, lastErr)
+}
+
+func (h *FileSyncHandler) uploadFileOnce(ctx context.Context, filePath, s3Key string) error {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("open file: %w", err)
@@ -231,30 +294,86 @@ func (h *FileSyncHandler) uploadFile(ctx context.Context, filePath, s3Key string
 
 	contentType := h.getContentType(filePath)
 
-	_, err = h.s3Client.PutObjectWithContext(ctx, &s3.PutObjectInput{
+	putObjectInput := &s3.PutObjectInput{
 		Bucket:      aws.String(h.config.S3.Bucket),
 		Key:         aws.String(s3Key),
 		ContentType: aws.String(contentType),
 		Body:        file,
-	})
+	}
 
-	if err == nil {
-		h.logger.Info("uploaded file with content type", map[string]any{
-			"file_path":    filePath,
-			"s3_key":       s3Key,
-			"content_type": contentType,
+	if h.config.S3.EnableIntegrityCheck {
+		if _, err := file.Seek(0, 0); err != nil {
+			return fmt.Errorf("seek file: %w", err)
+		}
+
+		md5Hash, err := h.calculateMD5(file)
+		if err != nil {
+			return fmt.Errorf("calculate MD5: %w", err)
+		}
+
+		putObjectInput.ContentMD5 = aws.String(md5Hash)
+		if _, err := file.Seek(0, 0); err != nil {
+			return fmt.Errorf("seek file for upload: %w", err)
+		}
+
+		h.logger.Info("calculated MD5 for integrity check", map[string]any{
+			"file_path": filePath,
+			"s3_key":    s3Key,
+			"md5_hash":  md5Hash,
 		})
+	}
 
-		if h.cache != nil {
-			if err := h.cache.SetFileExists(ctx, s3Key, fileSize); err != nil {
-				h.logger.Error("failed to update cache after upload", err, map[string]any{
-					"s3_key": s3Key,
-				})
-			}
+	_, err = h.s3Client.PutObjectWithContext(ctx, putObjectInput)
+	if err != nil {
+		return fmt.Errorf("put object: %w", err)
+	}
+
+	if h.cache != nil {
+		if err := h.cache.SetFileExists(ctx, s3Key, fileSize); err != nil {
+			h.logger.Error("failed to update cache after upload", err, map[string]any{
+				"s3_key": s3Key,
+			})
 		}
 	}
 
-	return err
+	return nil
+}
+
+func (h *FileSyncHandler) calculateMD5(file *os.File) (string, error) {
+	hash := md5.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(hash.Sum(nil)), nil
+}
+
+func (h *FileSyncHandler) isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if aerr, ok := err.(awserr.Error); ok {
+		switch aerr.Code() {
+		case "RequestTimeout", "ServiceUnavailable", "Throttling", "ThrottlingException",
+			"ProvisionedThroughputExceededException", "RequestTimeTooSkewed":
+			return true
+		case "InvalidAccessKeyId", "SignatureDoesNotMatch", "NoSuchBucket", "AccessDenied":
+			return false
+		default:
+			return false
+		}
+	}
+
+	errStr := err.Error()
+	if strings.Contains(errStr, "connection reset") ||
+		strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "timeout") ||
+		strings.Contains(errStr, "temporary failure") ||
+		strings.Contains(errStr, "network is unreachable") {
+		return true
+	}
+
+	return false
 }
 
 func (h *FileSyncHandler) deleteFile(filePath string) error {

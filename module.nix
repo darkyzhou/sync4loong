@@ -23,8 +23,11 @@ in
         Configuration for sync4loong daemon.
 
         S3 configuration is required for the daemon to function.
+        Additional S3 options include retry settings, timeout configuration,
+        file upload retry mechanism, and MD5 integrity checking.
         SSH settings are optional but enable remote execution after sync.
         HTTP configuration is optional (defaults to :8080).
+        Cache configuration manages file existence checks with Redis.
       '';
     };
 

@@ -28,6 +28,19 @@ type S3Config struct {
 	Bucket    string `mapstructure:"bucket" validate:"required,min=1"`
 	AccessKey string `mapstructure:"access_key" validate:"required,min=1"`
 	SecretKey string `mapstructure:"secret_key" validate:"required,min=1"`
+
+	MaxRetries           int `mapstructure:"max_retries" validate:"min=0,max=10"`
+	RetryDelaySeconds    int `mapstructure:"retry_delay_seconds" validate:"min=1,max=60"`
+	MaxRetryDelaySeconds int `mapstructure:"max_retry_delay_seconds" validate:"min=5,max=300"`
+
+	ConnectTimeoutSeconds int `mapstructure:"connect_timeout_seconds" validate:"min=5,max=120"`
+	ReadTimeoutSeconds    int `mapstructure:"read_timeout_seconds" validate:"min=30,max=3600"`
+	WriteTimeoutSeconds   int `mapstructure:"write_timeout_seconds" validate:"min=30,max=3600"`
+
+	FileUploadRetryCount        int `mapstructure:"file_upload_retry_count" validate:"min=0,max=5"`
+	FileUploadRetryDelaySeconds int `mapstructure:"file_upload_retry_delay_seconds" validate:"min=1,max=30"`
+
+	EnableIntegrityCheck bool `mapstructure:"enable_integrity_check"`
 }
 
 type DaemonConfig struct {
@@ -88,6 +101,15 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("redis.db", 0)
 
 	v.SetDefault("s3.region", "us-east-1")
+	v.SetDefault("s3.max_retries", 3)
+	v.SetDefault("s3.retry_delay_seconds", 2)
+	v.SetDefault("s3.max_retry_delay_seconds", 60)
+	v.SetDefault("s3.connect_timeout_seconds", 30)
+	v.SetDefault("s3.read_timeout_seconds", 300)
+	v.SetDefault("s3.write_timeout_seconds", 300)
+	v.SetDefault("s3.file_upload_retry_count", 2)
+	v.SetDefault("s3.file_upload_retry_delay_seconds", 2)
+	v.SetDefault("s3.enable_integrity_check", true)
 
 	v.SetDefault("daemon.concurrency", 4)
 	v.SetDefault("daemon.log_level", "info")
