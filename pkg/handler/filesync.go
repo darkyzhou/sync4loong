@@ -352,6 +352,7 @@ func (h *FileSyncHandler) isRetryableError(err error) bool {
 		return false
 	}
 
+	// First check AWS-specific error codes
 	if aerr, ok := err.(awserr.Error); ok {
 		switch aerr.Code() {
 		case "RequestTimeout", "ServiceUnavailable", "Throttling", "ThrottlingException",
@@ -359,17 +360,20 @@ func (h *FileSyncHandler) isRetryableError(err error) bool {
 			return true
 		case "InvalidAccessKeyId", "SignatureDoesNotMatch", "NoSuchBucket", "AccessDenied":
 			return false
-		default:
-			return false
 		}
+		// Don't return false for unknown AWS error codes, continue to string check
 	}
 
+	// Check error message for common retryable patterns
 	errStr := err.Error()
 	if strings.Contains(errStr, "connection reset") ||
 		strings.Contains(errStr, "connection refused") ||
 		strings.Contains(errStr, "timeout") ||
+		strings.Contains(errStr, "deadline exceeded") ||
 		strings.Contains(errStr, "temporary failure") ||
-		strings.Contains(errStr, "network is unreachable") {
+		strings.Contains(errStr, "network is unreachable") ||
+		strings.Contains(errStr, "no such host") ||
+		strings.Contains(errStr, "connection timed out") {
 		return true
 	}
 
