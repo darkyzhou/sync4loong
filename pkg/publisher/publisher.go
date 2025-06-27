@@ -38,39 +38,63 @@ func (p *Publisher) Close() {
 	_ = p.client.Close()
 }
 
-func (p *Publisher) PublishFileSyncTask(folderPath, prefix string) error {
-	if folderPath == "" {
-		return fmt.Errorf("folder path is required")
-	}
-	if prefix == "" {
-		return fmt.Errorf("prefix is required")
+type SyncItem struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+func (p *Publisher) PublishFileSyncTask(items []SyncItem) error {
+	if len(items) == 0 {
+		return fmt.Errorf("at least one sync item is required")
 	}
 
-	if _, err := os.Stat(folderPath); errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("folder not found: %s", folderPath)
-	}
+	// Validate all items first
+	for i, item := range items {
+		if item.From == "" {
+			return fmt.Errorf("'from' field is required for item %d", i)
+		}
+		if item.To == "" {
+			return fmt.Errorf("'to' field is required for item %d", i)
+		}
 
-	entries, err := os.ReadDir(folderPath)
-	if err != nil {
-		return fmt.Errorf("read folder: %w", err)
-	}
+		// Check if source path exists
+		if _, err := os.Stat(item.From); errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("source not found: %s", item.From)
+		}
 
-	hasValidFiles := false
-	for _, entry := range entries {
-		name := entry.Name()
-		if len(name) > 0 && name[0] != '.' {
-			hasValidFiles = true
-			break
+		// If it's a directory, check if it has valid files
+		if stat, err := os.Stat(item.From); err == nil && stat.IsDir() {
+			entries, err := os.ReadDir(item.From)
+			if err != nil {
+				return fmt.Errorf("read directory %s: %w", item.From, err)
+			}
+
+			hasValidFiles := false
+			for _, entry := range entries {
+				name := entry.Name()
+				if len(name) > 0 && name[0] != '.' {
+					hasValidFiles = true
+					break
+				}
+			}
+
+			if !hasValidFiles {
+				return fmt.Errorf("directory is empty or contains only hidden files: %s", item.From)
+			}
 		}
 	}
 
-	if !hasValidFiles {
-		return fmt.Errorf("folder is empty or contains only hidden files: %s", folderPath)
+	// Convert to new payload format
+	syncItems := make([]task.SyncItem, len(items))
+	for i, item := range items {
+		syncItems[i] = task.SyncItem{
+			From: item.From,
+			To:   item.To,
+		}
 	}
 
 	payload := task.FileSyncPayload{
-		FolderPath: folderPath,
-		Prefix:     prefix,
+		Items: syncItems,
 	}
 
 	payloadBytes, err := json.Marshal(payload)
@@ -78,9 +102,9 @@ func (p *Publisher) PublishFileSyncTask(folderPath, prefix string) error {
 		return fmt.Errorf("marshal payload: %w", err)
 	}
 
-	task := asynq.NewTask(task.TaskTypeFileSync, payloadBytes)
+	taskObj := asynq.NewTask(task.TaskTypeFileSync, payloadBytes)
 	info, err := p.client.Enqueue(
-		task,
+		taskObj,
 		asynq.MaxRetry(p.config.Publish.MaxRetry),
 		asynq.Timeout(time.Duration(p.config.Publish.TimeoutMinutes)*time.Minute),
 	)
@@ -89,10 +113,9 @@ func (p *Publisher) PublishFileSyncTask(folderPath, prefix string) error {
 	}
 
 	logger.Info("task enqueued successfully", map[string]any{
-		"task_id": info.ID,
-		"queue":   info.Queue,
-		"folder":  folderPath,
-		"prefix":  prefix,
+		"task_id":     info.ID,
+		"queue":       info.Queue,
+		"items_count": len(items),
 	})
 	return nil
 }

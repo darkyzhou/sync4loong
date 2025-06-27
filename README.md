@@ -20,12 +20,15 @@ Start the daemon:
 make run-daemon
 ```
 
-Publish a sync task via HTTP API:
+Publish sync tasks via HTTP API:
 
 ```bash
 curl -X POST http://localhost:8080/publish \
   -H "Content-Type: application/json" \
-  -d '{"folder_path": "/path/to/folder", "prefix": "store/"}'
+  -d '[
+    {"from": "/path/to/folder", "to": "store/"},
+    {"from": "/path/to/file", "to": "store/file"}
+  ]'
 ```
 
 Check if a file exists in S3 (with Redis caching):

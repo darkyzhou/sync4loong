@@ -6,8 +6,12 @@ const (
 )
 
 type FileSyncPayload struct {
-	FolderPath string `json:"folder_path"`
-	Prefix     string `json:"prefix"`
+	Items []SyncItem `json:"items"`
+}
+
+type SyncItem struct {
+	From string `json:"from"`
+	To   string `json:"to"`
 }
 
 type SSHPayload struct {
@@ -15,10 +19,17 @@ type SSHPayload struct {
 }
 
 type SyncResult struct {
-	FolderPath    string   `json:"folder_path"`
-	Prefix        string   `json:"prefix"`
+	Items         []SyncItemResult `json:"items"`
+	TotalFiles    int              `json:"total_files"`
+	UploadedFiles int              `json:"uploaded_files"`
+	FailedFiles   []string         `json:"failed_files"`
+	Duration      string           `json:"duration"`
+}
+
+type SyncItemResult struct {
+	From          string   `json:"from"`
+	To            string   `json:"to"`
 	TotalFiles    int      `json:"total_files"`
 	UploadedFiles int      `json:"uploaded_files"`
 	FailedFiles   []string `json:"failed_files"`
-	Duration      string   `json:"duration"`
 }

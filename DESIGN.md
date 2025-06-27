@@ -245,6 +245,36 @@ S3:    store/lib/libc.so.6
 
 ## API Endpoints
 
+### Task Publishing
+
+**Endpoint**: `POST /publish`
+
+**Request**:
+```bash
+curl -X POST "http://localhost:8080/publish" \
+  -H "Content-Type: application/json" \
+  -d '[
+    {"from": "/data/nix-store", "to": "store/"},
+    {"from": "/data/single-file.txt", "to": "store/file.txt"}
+  ]'
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "task published successfully"
+}
+```
+
+**Error Response**:
+```json
+{
+  "success": false,
+  "error": "'from' field is required for item 0"
+}
+```
+
 ### File Existence Check
 
 **Endpoint**: `GET /check/{key}` or `GET /check?key={s3_key}`

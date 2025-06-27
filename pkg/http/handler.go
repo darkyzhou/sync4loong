@@ -18,9 +18,11 @@ type HTTPHandler struct {
 	logger    *logger.Logger
 }
 
-type PublishRequest struct {
-	FolderPath string `json:"folder_path"`
-	Prefix     string `json:"prefix"`
+type PublishRequest []SyncItem
+
+type SyncItem struct {
+	From string `json:"from"`
+	To   string `json:"to"`
 }
 
 type PublishResponse struct {
@@ -80,28 +82,41 @@ func (h *HTTPHandler) PublishHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.FolderPath == "" {
-		h.sendErrorResponse(w, http.StatusBadRequest, "folder_path is required")
+	if len(req) == 0 {
+		h.sendErrorResponse(w, http.StatusBadRequest, "at least one sync item is required")
 		return
 	}
 
-	if req.Prefix == "" {
-		h.sendErrorResponse(w, http.StatusBadRequest, "prefix is required")
-		return
+	for i, item := range req {
+		if item.From == "" {
+			h.sendErrorResponse(w, http.StatusBadRequest, fmt.Sprintf("'from' field is required for item %d", i))
+			return
+		}
+		if item.To == "" {
+			h.sendErrorResponse(w, http.StatusBadRequest, fmt.Sprintf("'to' field is required for item %d", i))
+			return
+		}
 	}
 
-	if err := h.publisher.PublishFileSyncTask(req.FolderPath, req.Prefix); err != nil {
+	// Convert to publisher.SyncItem slice
+	items := make([]publisher.SyncItem, len(req))
+	for i, item := range req {
+		items[i] = publisher.SyncItem{
+			From: item.From,
+			To:   item.To,
+		}
+	}
+
+	if err := h.publisher.PublishFileSyncTask(items); err != nil {
 		h.logger.Error("failed to publish task", err, map[string]any{
-			"folder_path": req.FolderPath,
-			"prefix":      req.Prefix,
+			"items_count": len(req),
 		})
 		h.sendErrorResponse(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	h.logger.Info("task published via HTTP", map[string]any{
-		"folder_path": req.FolderPath,
-		"prefix":      req.Prefix,
+		"items_count": len(req),
 	})
 
 	response := PublishResponse{
