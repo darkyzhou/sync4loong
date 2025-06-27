@@ -10,8 +10,9 @@ type FileSyncPayload struct {
 }
 
 type SyncItem struct {
-	From string `json:"from"`
-	To   string `json:"to"`
+	From            string `json:"from"`
+	To              string `json:"to"`
+	DeleteAfterSync bool   `json:"delete_after_sync,omitempty"`
 }
 
 type SSHPayload struct {

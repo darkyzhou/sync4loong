@@ -45,7 +45,6 @@ type DaemonConfig struct {
 	SSHDebounceMinutes int    `mapstructure:"ssh_debounce_minutes" validate:"min=1"`
 	SSHTimeoutMinutes  int    `mapstructure:"ssh_timeout_minutes" validate:"min=1"`
 	EnableSSHTask      bool   `mapstructure:"enable_ssh_task"`
-	DeleteAfterSync    bool   `mapstructure:"delete_after_sync"`
 }
 
 type PublishConfig struct {
@@ -110,7 +109,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("daemon.ssh_debounce_minutes", 5)
 	v.SetDefault("daemon.ssh_timeout_minutes", 1)
 	v.SetDefault("daemon.enable_ssh_task", false)
-	v.SetDefault("daemon.delete_after_sync", false)
 
 	v.SetDefault("publish.max_retry", 3)
 	v.SetDefault("publish.timeout_minutes", 60*6) // 6 hours

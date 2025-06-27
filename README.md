@@ -26,8 +26,8 @@ Publish sync tasks via HTTP API:
 curl -X POST http://localhost:8080/publish \
   -H "Content-Type: application/json" \
   -d '[
-    {"from": "/path/to/folder", "to": "store/"},
-    {"from": "/path/to/file", "to": "store/file"}
+    {"from": "/path/to/folder", "to": "store/", "delete_after_sync": true},
+    {"from": "/path/to/file", "to": "store/file", "delete_after_sync": false}
   ]'
 ```
 

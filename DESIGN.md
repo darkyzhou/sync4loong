@@ -40,17 +40,29 @@ Sync4Loong is a file synchronization system based on Go and Asynq, specifically 
 const TaskTypeFileSync = "file_sync"
 
 type FileSyncPayload struct {
-    FolderPath string `json:"folder_path"`
-    Prefix     string `json:"prefix"`
+    Items []SyncItem `json:"items"`
+}
+
+type SyncItem struct {
+    From            string `json:"from"`
+    To              string `json:"to"`
+    DeleteAfterSync bool   `json:"delete_after_sync,omitempty"`
 }
 
 type SyncResult struct {
-    FolderPath    string   `json:"folder_path"`
-    Prefix        string   `json:"prefix"`
+    Items         []SyncItemResult `json:"items"`
+    TotalFiles    int              `json:"total_files"`
+    UploadedFiles int              `json:"uploaded_files"`
+    FailedFiles   []string         `json:"failed_files"`
+    Duration      string           `json:"duration"`
+}
+
+type SyncItemResult struct {
+    From          string   `json:"from"`
+    To            string   `json:"to"`
     TotalFiles    int      `json:"total_files"`
     UploadedFiles int      `json:"uploaded_files"`
     FailedFiles   []string `json:"failed_files"`
-    Duration      string   `json:"duration"`
 }
 ```
 
@@ -87,7 +99,6 @@ type DaemonConfig struct {
     SSHDebounceMinutes int    `toml:"ssh_debounce_minutes" validate:"min=1"`
     SSHTimeoutMinutes  int    `toml:"ssh_timeout_minutes" validate:"min=1"`
     EnableSSHTask      bool   `toml:"enable_ssh_task"`
-    DeleteAfterSync    bool   `toml:"delete_after_sync"`
 }
 
 type PublishConfig struct {
@@ -113,13 +124,13 @@ type CacheConfig struct {
 - Supports intelligent file skipping (based on file size comparison)
 - Cross-platform S3 path handling (Windows backslash conversion)
 - Context cancellation support
-- Optional file deletion after successful sync (configurable via `delete_after_sync`)
+- Optional file deletion after successful sync (configurable per sync item via `delete_after_sync`)
 - Automatic cleanup of empty directories after file deletion
 
 ### 2. HTTP Handler (pkg/http/HTTPHandler)
 
 - Provides REST API endpoint for task submission
-- Validates HTTP request payload (folder_path and prefix)
+- Validates HTTP request payload (from, to, and optional delete_after_sync)
 - Uses Publisher to create and push tasks to Redis queue
 - Returns JSON responses with success/error status
 - Provides file existence check endpoint with Redis caching
@@ -195,7 +206,7 @@ sync4loong/
 ### 1. Task Publishing Flow
 
 1. HTTP client sends POST request to `/publish` endpoint with JSON payload
-2. HTTP handler validates request payload (folder_path and prefix)
+2. HTTP handler validates request payload (from, to, and optional delete_after_sync)
 3. Publisher checks local folder existence and non-emptiness
 4. Creates `FileSyncPayload` task payload
 5. Pushes task to Redis queue
@@ -254,8 +265,8 @@ S3:    store/lib/libc.so.6
 curl -X POST "http://localhost:8080/publish" \
   -H "Content-Type: application/json" \
   -d '[
-    {"from": "/data/nix-store", "to": "store/"},
-    {"from": "/data/single-file.txt", "to": "store/file.txt"}
+    {"from": "/data/nix-store", "to": "store/", "delete_after_sync": true},
+    {"from": "/data/single-file.txt", "to": "store/file.txt", "delete_after_sync": false}
   ]'
 ```
 

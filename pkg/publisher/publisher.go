@@ -39,8 +39,9 @@ func (p *Publisher) Close() {
 }
 
 type SyncItem struct {
-	From string `json:"from"`
-	To   string `json:"to"`
+	From            string `json:"from"`
+	To              string `json:"to"`
+	DeleteAfterSync bool   `json:"delete_after_sync,omitempty"`
 }
 
 func (p *Publisher) PublishFileSyncTask(items []SyncItem) error {
@@ -88,8 +89,9 @@ func (p *Publisher) PublishFileSyncTask(items []SyncItem) error {
 	syncItems := make([]task.SyncItem, len(items))
 	for i, item := range items {
 		syncItems[i] = task.SyncItem{
-			From: item.From,
-			To:   item.To,
+			From:            item.From,
+			To:              item.To,
+			DeleteAfterSync: item.DeleteAfterSync,
 		}
 	}
 

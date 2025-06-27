@@ -114,12 +114,12 @@ func (h *FileSyncHandler) syncSingleItem(ctx context.Context, item *task.SyncIte
 		if err != nil {
 			return fmt.Errorf("list files in %s: %w", from, err)
 		}
-		// Create a new item with the resolved path
-		resolvedItem := &task.SyncItem{From: from, To: item.To}
+		// Create a new item with the resolved path and preserve DeleteAfterSync setting
+		resolvedItem := &task.SyncItem{From: from, To: item.To, DeleteAfterSync: item.DeleteAfterSync}
 		return h.uploadFiles(ctx, files, resolvedItem)
 	} else {
 		// Handle single file sync
-		return h.uploadSingleFile(ctx, from, item.To)
+		return h.uploadSingleFileWithOptions(ctx, from, item.To, item.DeleteAfterSync)
 	}
 }
 
@@ -154,7 +154,7 @@ func (h *FileSyncHandler) uploadFiles(ctx context.Context, files []string, item 
 		// Clean up double slashes
 		s3Key = strings.ReplaceAll(s3Key, "//", "/")
 
-		if err := h.uploadSingleFile(ctx, filePath, s3Key); err != nil {
+		if err := h.uploadSingleFileWithOptions(ctx, filePath, s3Key, item.DeleteAfterSync); err != nil {
 			h.logger.Error("failed to upload file", err, map[string]any{
 				"file_path": filePath,
 				"s3_key":    s3Key,
@@ -166,7 +166,7 @@ func (h *FileSyncHandler) uploadFiles(ctx context.Context, files []string, item 
 	return nil
 }
 
-func (h *FileSyncHandler) uploadSingleFile(ctx context.Context, filePath, s3Key string) error {
+func (h *FileSyncHandler) uploadSingleFileWithOptions(ctx context.Context, filePath, s3Key string, deleteAfterSync bool) error {
 	shouldUpload, err := h.shouldUploadFile(ctx, filePath, s3Key)
 	if err != nil {
 		return fmt.Errorf("check file status: %w", err)
@@ -184,7 +184,7 @@ func (h *FileSyncHandler) uploadSingleFile(ctx context.Context, filePath, s3Key 
 		return fmt.Errorf("upload file: %w", err)
 	}
 
-	if h.config.Daemon.DeleteAfterSync {
+	if deleteAfterSync {
 		if err := h.deleteFile(filePath); err != nil {
 			h.logger.Error("failed to delete file after sync", err, map[string]any{
 				"file_path": filePath,

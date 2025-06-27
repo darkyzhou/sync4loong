@@ -21,8 +21,9 @@ type HTTPHandler struct {
 type PublishRequest []SyncItem
 
 type SyncItem struct {
-	From string `json:"from"`
-	To   string `json:"to"`
+	From            string `json:"from"`
+	To              string `json:"to"`
+	DeleteAfterSync bool   `json:"delete_after_sync,omitempty"`
 }
 
 type PublishResponse struct {
@@ -102,8 +103,9 @@ func (h *HTTPHandler) PublishHandler(w http.ResponseWriter, r *http.Request) {
 	items := make([]publisher.SyncItem, len(req))
 	for i, item := range req {
 		items[i] = publisher.SyncItem{
-			From: item.From,
-			To:   item.To,
+			From:            item.From,
+			To:              item.To,
+			DeleteAfterSync: item.DeleteAfterSync,
 		}
 	}
 
