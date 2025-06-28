@@ -42,6 +42,7 @@ type SyncItem struct {
 	From            string `json:"from"`
 	To              string `json:"to"`
 	DeleteAfterSync bool   `json:"delete_after_sync,omitempty"`
+	Overwrite       bool   `json:"overwrite,omitempty"`
 }
 
 func (p *Publisher) PublishFileSyncTask(items []SyncItem) error {
@@ -85,13 +86,13 @@ func (p *Publisher) PublishFileSyncTask(items []SyncItem) error {
 		}
 	}
 
-	// Convert to new payload format
 	syncItems := make([]task.SyncItem, len(items))
 	for i, item := range items {
 		syncItems[i] = task.SyncItem{
 			From:            item.From,
 			To:              item.To,
 			DeleteAfterSync: item.DeleteAfterSync,
+			Overwrite:       item.Overwrite,
 		}
 	}
 

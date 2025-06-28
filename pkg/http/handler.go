@@ -24,6 +24,7 @@ type SyncItem struct {
 	From            string `json:"from"`
 	To              string `json:"to"`
 	DeleteAfterSync bool   `json:"delete_after_sync,omitempty"`
+	Overwrite       bool   `json:"overwrite,omitempty"`
 }
 
 type PublishResponse struct {
@@ -106,6 +107,7 @@ func (h *HTTPHandler) PublishHandler(w http.ResponseWriter, r *http.Request) {
 			From:            item.From,
 			To:              item.To,
 			DeleteAfterSync: item.DeleteAfterSync,
+			Overwrite:       item.Overwrite,
 		}
 	}
 
