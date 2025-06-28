@@ -109,7 +109,7 @@ func (h *FileSyncHandler) syncSingleItem(ctx context.Context, item *task.SyncIte
 	}
 
 	if stat.IsDir() {
-		// Handle directory sync
+		// Handle directory sync - treat 'To' as target directory
 		files, err := h.listFiles(from)
 		if err != nil {
 			return fmt.Errorf("list files in %s: %w", from, err)
@@ -119,7 +119,13 @@ func (h *FileSyncHandler) syncSingleItem(ctx context.Context, item *task.SyncIte
 		return h.uploadFiles(ctx, files, resolvedItem)
 	} else {
 		// Handle single file sync
-		return h.uploadSingleFileWithOptions(ctx, from, item.To, item.DeleteAfterSync)
+		// If 'To' ends with '/', treat it as a directory and append filename
+		s3Key := item.To
+		if strings.HasSuffix(item.To, "/") {
+			filename := filepath.Base(from)
+			s3Key = item.To + filename
+		}
+		return h.uploadSingleFileWithOptions(ctx, from, s3Key, item.DeleteAfterSync)
 	}
 }
 
