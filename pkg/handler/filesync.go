@@ -183,21 +183,15 @@ func (h *FileSyncHandler) uploadSingleFileWithOptions(ctx context.Context, fileP
 			"file_path": filePath,
 			"s3_key":    s3Key,
 		})
-		return nil
-	}
-
-	if err := h.uploadFile(ctx, filePath, s3Key); err != nil {
-		return fmt.Errorf("upload file: %w", err)
+	} else {
+		if err := h.uploadFile(ctx, filePath, s3Key); err != nil {
+			return fmt.Errorf("upload file: %w", err)
+		}
 	}
 
 	if deleteAfterSync {
 		if err := h.deleteFile(filePath); err != nil {
 			h.logger.Error("failed to delete file after sync", err, map[string]any{
-				"file_path": filePath,
-				"s3_key":    s3Key,
-			})
-		} else {
-			h.logger.Info("deleted file after successful sync", map[string]any{
 				"file_path": filePath,
 				"s3_key":    s3Key,
 			})
