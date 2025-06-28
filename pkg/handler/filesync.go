@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"errors"
@@ -20,6 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/sync/semaphore"
 
 	"sync4loong/pkg/cache"
 	"sync4loong/pkg/config"
@@ -34,6 +36,20 @@ type FileSyncHandler struct {
 	logger       *logger.Logger
 	sshDebouncer *ssh.Debouncer
 	cache        *cache.FileExistenceCache
+}
+
+type uploadTask struct {
+	filePath        string
+	s3Key           string
+	deleteAfterSync bool
+	overwrite       bool
+}
+
+type uploadResult struct {
+	task     uploadTask
+	err      error
+	skipped  bool
+	uploaded bool
 }
 
 func NewFileSyncHandler(s3Client *s3.S3, config *config.Config, redisClient *redis.Client, asyncClient *asynq.Client, cache *cache.FileExistenceCache) *FileSyncHandler {
@@ -114,8 +130,8 @@ func (h *FileSyncHandler) syncSingleItem(ctx context.Context, item *task.SyncIte
 		if err != nil {
 			return fmt.Errorf("list files in %s: %w", from, err)
 		}
-		// Create a new item with the resolved path and preserve DeleteAfterSync setting
-		resolvedItem := &task.SyncItem{From: from, To: item.To, DeleteAfterSync: item.DeleteAfterSync}
+		// Create a new item with the resolved path and preserve DeleteAfterSync and Overwrite settings
+		resolvedItem := &task.SyncItem{From: from, To: item.To, DeleteAfterSync: item.DeleteAfterSync, Overwrite: item.Overwrite}
 		return h.uploadFiles(ctx, files, resolvedItem)
 	} else {
 		// Handle single file sync
@@ -125,7 +141,7 @@ func (h *FileSyncHandler) syncSingleItem(ctx context.Context, item *task.SyncIte
 			filename := filepath.Base(from)
 			s3Key = item.To + filename
 		}
-		return h.uploadSingleFileWithOptions(ctx, from, s3Key, item.DeleteAfterSync)
+		return h.uploadSingleFileWithOptions(ctx, from, s3Key, item.DeleteAfterSync, item.Overwrite)
 	}
 }
 
@@ -148,32 +164,132 @@ func (h *FileSyncHandler) listFiles(folderPath string) ([]string, error) {
 }
 
 func (h *FileSyncHandler) uploadFiles(ctx context.Context, files []string, item *task.SyncItem) error {
-	for _, filePath := range files {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
+	if len(files) == 0 {
+		return nil
+	}
 
+	concurrency := h.config.S3.FileUploadConcurrency
+	if concurrency <= 0 {
+		concurrency = 1
+	}
+	if concurrency > len(files) {
+		concurrency = len(files)
+	}
+
+	return h.uploadFilesConcurrently(ctx, files, item, concurrency)
+}
+
+func (h *FileSyncHandler) uploadFilesConcurrently(ctx context.Context, files []string, item *task.SyncItem, concurrency int) error {
+	resultsCh := make(chan uploadResult, len(files))
+
+	var wg sync.WaitGroup
+	sem := semaphore.NewWeighted(int64(concurrency))
+	for _, filePath := range files {
 		relPath, _ := filepath.Rel(item.From, filePath)
 		s3Key := strings.Join([]string{item.To, strings.ReplaceAll(relPath, "\\", "/")}, "/")
-		// Clean up double slashes
 		s3Key = strings.ReplaceAll(s3Key, "//", "/")
 
-		if err := h.uploadSingleFileWithOptions(ctx, filePath, s3Key, item.DeleteAfterSync); err != nil {
-			h.logger.Error("failed to upload file", err, map[string]any{
-				"file_path": filePath,
-				"s3_key":    s3Key,
+		task := uploadTask{
+			filePath:        filePath,
+			s3Key:           s3Key,
+			deleteAfterSync: item.DeleteAfterSync,
+			overwrite:       item.Overwrite,
+		}
+
+		wg.Add(1)
+		go func(task uploadTask) {
+			defer wg.Done()
+
+			if err := sem.Acquire(ctx, 1); err != nil {
+				resultsCh <- uploadResult{task: task, err: err}
+				return
+			}
+			defer sem.Release(1)
+
+			result := h.processUploadTask(ctx, task)
+			resultsCh <- result
+		}(task)
+	}
+
+	// Wait for all goroutines to complete and close results channel
+	go func() {
+		wg.Wait()
+		close(resultsCh)
+	}()
+
+	var errors []error
+	totalFiles := len(files)
+	uploadedCount := 0
+	skippedCount := 0
+
+	for result := range resultsCh {
+		if result.err != nil {
+			h.logger.Error("failed to upload file", result.err, map[string]any{
+				"file_path": result.task.filePath,
+				"s3_key":    result.task.s3Key,
 			})
-			continue
+			errors = append(errors, result.err)
+		} else if result.uploaded {
+			uploadedCount++
+		} else if result.skipped {
+			skippedCount++
 		}
 	}
 
+	h.logger.Info("concurrent upload completed", map[string]any{
+		"total_files":    totalFiles,
+		"uploaded_files": uploadedCount,
+		"skipped_files":  skippedCount,
+		"failed_files":   len(errors),
+		"from":           item.From,
+		"to":             item.To,
+	})
+
+	if len(errors) > 0 {
+		return fmt.Errorf("failed to upload %d out of %d files", len(errors), totalFiles)
+	}
 	return nil
 }
 
-func (h *FileSyncHandler) uploadSingleFileWithOptions(ctx context.Context, filePath, s3Key string, deleteAfterSync bool) error {
-	shouldUpload, err := h.shouldUploadFile(ctx, filePath, s3Key)
+func (h *FileSyncHandler) processUploadTask(ctx context.Context, task uploadTask) uploadResult {
+	shouldUpload, err := h.shouldUploadFile(ctx, task.filePath, task.s3Key, task.overwrite)
+	if err != nil {
+		return uploadResult{task: task, err: fmt.Errorf("check file status: %w", err)}
+	}
+
+	if !shouldUpload {
+		h.logger.Info("file already exists with same size, skipping", map[string]any{
+			"file_path": task.filePath,
+			"s3_key":    task.s3Key,
+		})
+		if task.deleteAfterSync {
+			if err := h.deleteFile(task.filePath); err != nil {
+				h.logger.Error("failed to delete file after sync", err, map[string]any{
+					"file_path": task.filePath,
+					"s3_key":    task.s3Key,
+				})
+			}
+		}
+		return uploadResult{task: task, skipped: true}
+	}
+
+	if err := h.uploadFile(ctx, task.filePath, task.s3Key); err != nil {
+		return uploadResult{task: task, err: fmt.Errorf("upload file: %w", err)}
+	}
+
+	if task.deleteAfterSync {
+		if err := h.deleteFile(task.filePath); err != nil {
+			h.logger.Error("failed to delete file after sync", err, map[string]any{
+				"file_path": task.filePath,
+				"s3_key":    task.s3Key,
+			})
+		}
+	}
+	return uploadResult{task: task, uploaded: true}
+}
+
+func (h *FileSyncHandler) uploadSingleFileWithOptions(ctx context.Context, filePath, s3Key string, deleteAfterSync bool, overwrite bool) error {
+	shouldUpload, err := h.shouldUploadFile(ctx, filePath, s3Key, overwrite)
 	if err != nil {
 		return fmt.Errorf("check file status: %w", err)
 	}
@@ -201,7 +317,11 @@ func (h *FileSyncHandler) uploadSingleFileWithOptions(ctx context.Context, fileP
 	return nil
 }
 
-func (h *FileSyncHandler) shouldUploadFile(ctx context.Context, localPath, s3Key string) (bool, error) {
+func (h *FileSyncHandler) shouldUploadFile(ctx context.Context, localPath, s3Key string, overwrite bool) (bool, error) {
+	if overwrite {
+		return true, nil
+	}
+
 	localStat, err := os.Stat(localPath)
 	if err != nil {
 		return false, fmt.Errorf("stat local file: %w", err)

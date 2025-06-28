@@ -47,6 +47,7 @@ type SyncItem struct {
     From            string `json:"from"`
     To              string `json:"to"`
     DeleteAfterSync bool   `json:"delete_after_sync,omitempty"`
+    Overwrite       bool   `json:"overwrite,omitempty"`
 }
 
 type SyncResult struct {
@@ -122,6 +123,7 @@ type CacheConfig struct {
 
 - Responsible for handling file synchronization tasks
 - Supports intelligent file skipping (based on file size comparison)
+- Optional forced overwrite mode (configurable per sync item via `overwrite`)
 - Cross-platform S3 path handling (Windows backslash conversion)
 - Context cancellation support
 - Optional file deletion after successful sync (configurable per sync item via `delete_after_sync`)
@@ -130,7 +132,7 @@ type CacheConfig struct {
 ### 2. HTTP Handler (pkg/http/HTTPHandler)
 
 - Provides REST API endpoint for task submission
-- Validates HTTP request payload (from, to, and optional delete_after_sync)
+- Validates HTTP request payload (from, to, and optional delete_after_sync and overwrite)
 - Uses Publisher to create and push tasks to Redis queue
 - Returns JSON responses with success/error status
 - Provides file existence check endpoint with Redis caching
@@ -206,7 +208,7 @@ sync4loong/
 ### 1. Task Publishing Flow
 
 1. HTTP client sends POST request to `/publish` endpoint with JSON payload
-2. HTTP handler validates request payload (from, to, and optional delete_after_sync)
+2. HTTP handler validates request payload (from, to, and optional delete_after_sync and overwrite)
 3. Publisher checks local folder existence and non-emptiness
 4. Creates `FileSyncPayload` task payload
 5. Pushes task to Redis queue
@@ -218,6 +220,7 @@ sync4loong/
 2. Recursively traverses all files in the specified folder
 3. Generates S3 key for each file: `prefix + relative path`
 4. Executes intelligent upload decision:
+   - `overwrite` is true → Upload (force overwrite)
    - File doesn't exist → Upload
    - File size differs → Overwrite upload
    - File size same → Skip
@@ -265,8 +268,8 @@ S3:    store/lib/libc.so.6
 curl -X POST "http://localhost:8080/publish" \
   -H "Content-Type: application/json" \
   -d '[
-    {"from": "/data/nix-store", "to": "store/", "delete_after_sync": true},
-    {"from": "/data/single-file.txt", "to": "store/file.txt", "delete_after_sync": false}
+    {"from": "/data/nix-store", "to": "store/", "delete_after_sync": true, "overwrite": false},
+    {"from": "/data/single-file.txt", "to": "store/file.txt", "delete_after_sync": false, "overwrite": true}
   ]'
 ```
 

@@ -13,6 +13,7 @@ type SyncItem struct {
 	From            string `json:"from"`
 	To              string `json:"to"`
 	DeleteAfterSync bool   `json:"delete_after_sync,omitempty"`
+	Overwrite       bool   `json:"overwrite,omitempty"`
 }
 
 type SSHPayload struct {
