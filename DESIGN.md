@@ -94,7 +94,6 @@ type S3Config struct {
 }
 
 type DaemonConfig struct {
-    Concurrency        int    `toml:"concurrency" validate:"required,min=1,max=100"`
     LogLevel           string `toml:"log_level" validate:"required,oneof=debug info warn error fatal"`
     SSHCommand         string `toml:"ssh_command"`
     SSHDebounceMinutes int    `toml:"ssh_debounce_minutes" validate:"min=1"`
@@ -175,7 +174,6 @@ type CacheConfig struct {
   - Redis address: localhost:6379
   - HTTP address: :8080
   - Log level: info
-  - Concurrency: 4
   - Max retry: 3
   - Timeout: 30 minutes
   - Max concurrent S3 checks: 10

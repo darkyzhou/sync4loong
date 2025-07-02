@@ -40,7 +40,6 @@ type S3Config struct {
 }
 
 type DaemonConfig struct {
-	Concurrency        int    `mapstructure:"concurrency" validate:"required,min=1,max=100"`
 	LogLevel           string `mapstructure:"log_level" validate:"required,oneof=debug info warn error fatal"`
 	SSHCommand         string `mapstructure:"ssh_command"`
 	SSHDebounceMinutes int    `mapstructure:"ssh_debounce_minutes" validate:"min=1"`
@@ -101,11 +100,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("s3.max_retry_delay_seconds", 30)
 	v.SetDefault("s3.file_upload_retry_count", 2)
 	v.SetDefault("s3.file_upload_retry_delay_seconds", 2)
-	v.SetDefault("s3.file_upload_timeout_seconds", 60*60) // 1 hour
+	v.SetDefault("s3.file_upload_timeout_seconds", 4*60*60) // 4 hours
 	v.SetDefault("s3.file_upload_concurrency", 4)
 	v.SetDefault("s3.enable_integrity_check", true)
 
-	v.SetDefault("daemon.concurrency", 4)
 	v.SetDefault("daemon.log_level", "info")
 	v.SetDefault("daemon.ssh_command", "")
 	v.SetDefault("daemon.ssh_debounce_minutes", 5)
@@ -113,7 +111,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("daemon.enable_ssh_task", false)
 
 	v.SetDefault("publish.max_retry", 3)
-	v.SetDefault("publish.timeout_minutes", 60*6) // 6 hours
+	v.SetDefault("publish.timeout_minutes", 60*12) // 12 hours
 
 	v.SetDefault("http.addr", ":8080")
 
