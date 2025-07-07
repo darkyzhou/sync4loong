@@ -110,6 +110,7 @@ func (p *Publisher) PublishFileSyncTask(items []SyncItem) error {
 		taskObj,
 		asynq.MaxRetry(p.config.Publish.MaxRetry),
 		asynq.Timeout(time.Duration(p.config.Publish.TimeoutMinutes)*time.Minute),
+		asynq.Retention(24*time.Hour),
 	)
 	if err != nil {
 		return fmt.Errorf("enqueue task: %w", err)
