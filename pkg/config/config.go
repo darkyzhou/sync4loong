@@ -8,12 +8,13 @@ import (
 )
 
 type Config struct {
-	Redis   RedisConfig   `mapstructure:"redis" validate:"required"`
-	S3      S3Config      `mapstructure:"s3" validate:"required"`
-	Daemon  DaemonConfig  `mapstructure:"daemon" validate:"required"`
-	Publish PublishConfig `mapstructure:"publish" validate:"required"`
-	HTTP    HTTPConfig    `mapstructure:"http" validate:"required"`
-	Cache   CacheConfig   `mapstructure:"cache" validate:"required"`
+	Redis    RedisConfig    `mapstructure:"redis" validate:"required"`
+	S3       S3Config       `mapstructure:"s3" validate:"required"`
+	Daemon   DaemonConfig   `mapstructure:"daemon" validate:"required"`
+	Publish  PublishConfig  `mapstructure:"publish" validate:"required"`
+	HTTP     HTTPConfig     `mapstructure:"http" validate:"required"`
+	Cache    CacheConfig    `mapstructure:"cache" validate:"required"`
+	Asynqmon AsynqmonConfig `mapstructure:"asynqmon" validate:"required"`
 }
 
 type RedisConfig struct {
@@ -59,6 +60,13 @@ type HTTPConfig struct {
 type CacheConfig struct {
 	MaxConcurrentS3Checks int      `mapstructure:"max_concurrent_s3_checks" validate:"min=1,max=100"`
 	AllowedPrefixes       []string `mapstructure:"allowed_prefixes" validate:"required,min=1"`
+}
+
+type AsynqmonConfig struct {
+	Enabled        bool   `mapstructure:"enabled"`
+	RootPath       string `mapstructure:"root_path" validate:"required"`
+	ReadOnlyMode   bool   `mapstructure:"read_only_mode"`
+	PrometheusAddr string `mapstructure:"prometheus_addr" validate:"omitempty,hostname_port"`
 }
 
 func LoadFromFile(filename string) (*Config, error) {
@@ -117,4 +125,9 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("cache.max_concurrent_s3_checks", 10)
 	v.SetDefault("cache.allowed_prefixes", []string{"store/"})
+
+	v.SetDefault("asynqmon.enabled", true)
+	v.SetDefault("asynqmon.root_path", "/monitoring")
+	v.SetDefault("asynqmon.read_only_mode", false)
+	v.SetDefault("asynqmon.prometheus_addr", "")
 }

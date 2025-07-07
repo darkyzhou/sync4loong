@@ -4,7 +4,7 @@
 
 Sync4Loong is a file synchronization system based on Go and Asynq, specifically designed for synchronizing local folders to S3 storage. The system consists of one core component:
 
-- **daemon**: Background daemon process with integrated HTTP API, responsible for accepting task submissions via HTTP and consuming the queue to execute file upload tasks
+- **daemon**: Background daemon process with integrated HTTP API, responsible for accepting task submissions via HTTP and consuming the queue to execute file upload tasks, includes optional asynqmon web UI for queue monitoring
 
 ## Overall Architecture
 
@@ -71,12 +71,13 @@ type SyncItemResult struct {
 
 ```go
 type Config struct {
-    Redis   RedisConfig   `toml:"redis" validate:"required"`
-    S3      S3Config      `toml:"s3" validate:"required"`
-    Daemon  DaemonConfig  `toml:"daemon" validate:"required"`
-    Publish PublishConfig `toml:"publish" validate:"required"`
-    HTTP    HTTPConfig    `toml:"http" validate:"required"`
-    Cache   CacheConfig   `toml:"cache" validate:"required"`
+    Redis    RedisConfig    `toml:"redis" validate:"required"`
+    S3       S3Config       `toml:"s3" validate:"required"`
+    Daemon   DaemonConfig   `toml:"daemon" validate:"required"`
+    Publish  PublishConfig  `toml:"publish" validate:"required"`
+    HTTP     HTTPConfig     `toml:"http" validate:"required"`
+    Cache    CacheConfig    `toml:"cache" validate:"required"`
+    Asynqmon AsynqmonConfig `toml:"asynqmon" validate:"required"`
 }
 
 type RedisConfig struct {
@@ -114,6 +115,13 @@ type CacheConfig struct {
     MaxConcurrentS3Checks int      `toml:"max_concurrent_s3_checks" validate:"min=1,max=100"`
     AllowedPrefixes       []string `toml:"allowed_prefixes" validate:"required,min=1"`
 }
+
+type AsynqmonConfig struct {
+    Enabled        bool   `toml:"enabled"`
+    RootPath       string `toml:"root_path" validate:"required"`
+    ReadOnlyMode   bool   `toml:"read_only_mode"`
+    PrometheusAddr string `toml:"prometheus_addr" validate:"omitempty,hostname_port"`
+}
 ```
 
 ## Core Component Design
@@ -135,6 +143,7 @@ type CacheConfig struct {
 - Uses Publisher to create and push tasks to Redis queue
 - Returns JSON responses with success/error status
 - Provides file existence check endpoint with Redis caching
+- Integrates Asynqmon web UI for queue monitoring and management (optional)
 
 ### 3. Task Publisher (pkg/publisher/Publisher)
 
@@ -162,6 +171,14 @@ type CacheConfig struct {
 - logfmt format output
 - Supports different log levels
 
+### 7. Asynqmon Integration (pkg/http/HTTPHandler)
+
+- Web UI for monitoring and managing Asynq task queues
+- Provides real-time queue statistics and task inspection
+- Configurable read-only mode for production environments
+- Optional Prometheus metrics integration
+- Customizable root path for web interface mounting
+
 ## Configuration Management
 
 ### Viper Configuration Features
@@ -178,6 +195,9 @@ type CacheConfig struct {
   - Timeout: 30 minutes
   - Max concurrent S3 checks: 10
   - Allowed prefixes: ["store/"]
+  - Asynqmon enabled: true
+  - Asynqmon root path: /monitoring
+  - Asynqmon read-only mode: false
 
 ## Directory Structure
 
@@ -316,6 +336,36 @@ curl -X GET "http://localhost:8080/check?key=store/bin/bash"
   "allowed_prefixes": ["store/", "nix/"]
 }
 ```
+
+### Asynqmon Web UI
+
+**Endpoint**: `GET /monitoring` (default, configurable via `asynqmon.root_path`)
+
+**Features**:
+- Real-time queue monitoring and statistics
+- Task inspection and management
+- Queue performance metrics
+- Worker status and activity
+- Optional Prometheus metrics endpoint
+
+**Access**:
+```bash
+# Access the web UI (default configuration)
+curl http://localhost:8080/monitoring
+
+# Configuration example
+[asynqmon]
+enabled = true
+root_path = "/monitoring"
+read_only_mode = false
+prometheus_addr = ""
+```
+
+**Configuration Options**:
+- `enabled`: Enable/disable asynqmon web UI
+- `root_path`: URL path for mounting the web interface
+- `read_only_mode`: Restrict to read-only operations
+- `prometheus_addr`: Optional Prometheus metrics endpoint address
 
 ### Security and Performance Features
 

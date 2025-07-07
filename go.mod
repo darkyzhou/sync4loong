@@ -7,7 +7,8 @@ require (
 	github.com/go-logfmt/logfmt v0.6.0
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/hibiken/asynq v0.24.1
-	github.com/redis/go-redis/v9 v9.0.3
+	github.com/hibiken/asynqmon v0.7.2
+	github.com/redis/go-redis/v9 v9.0.4
 	github.com/spf13/viper v1.20.1
 	golang.org/x/sync v0.15.0
 )
@@ -20,8 +21,9 @@ require (
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
-	github.com/golang/protobuf v1.5.2 // indirect
+	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect

@@ -70,6 +70,11 @@ func NewDaemonService(config *config.Config) (*DaemonService, error) {
 	mux.HandleFunc("/clear-cache/", httpHandler.ClearCacheHandler)
 	mux.HandleFunc("/clear-cache", httpHandler.ClearCacheHandler)
 
+	// Register asynqmon handler if enabled
+	if asynqmonHandler := httpHandler.GetAsynqmonHandler(); asynqmonHandler != nil {
+		mux.Handle(asynqmonHandler.RootPath()+"/", asynqmonHandler)
+	}
+
 	httpServer := &http.Server{
 		Addr:    config.HTTP.Addr,
 		Handler: mux,
@@ -90,6 +95,16 @@ func (d *DaemonService) Start() error {
 		logger.Info("starting HTTP server", map[string]any{
 			"addr": d.config.HTTP.Addr,
 		})
+
+		if d.config.Asynqmon.Enabled {
+			logger.Info("asynqmon web UI enabled", map[string]any{
+				"root_path":   d.config.Asynqmon.RootPath,
+				"read_only":   d.config.Asynqmon.ReadOnlyMode,
+				"prometheus":  d.config.Asynqmon.PrometheusAddr != "",
+				"monitor_url": fmt.Sprintf("http://%s%s", d.config.HTTP.Addr, d.config.Asynqmon.RootPath),
+			})
+		}
+
 		if err := d.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("HTTP server failed", err, nil)
 		}

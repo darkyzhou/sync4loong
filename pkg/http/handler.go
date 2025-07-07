@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/hibiken/asynq"
+	"github.com/hibiken/asynqmon"
+
 	"sync4loong/pkg/cache"
 	"sync4loong/pkg/config"
 	"sync4loong/pkg/logger"
@@ -16,6 +19,7 @@ type HTTPHandler struct {
 	publisher *publisher.Publisher
 	cache     *cache.FileExistenceCache
 	logger    *logger.Logger
+	asynqmon  *asynqmon.HTTPHandler
 }
 
 type PublishRequest []SyncItem
@@ -59,10 +63,32 @@ func NewHTTPHandler(config *config.Config, cache *cache.FileExistenceCache) (*HT
 		return nil, err
 	}
 
+	var asynqmonHandler *asynqmon.HTTPHandler
+	if config.Asynqmon.Enabled {
+		redisConnOpt := asynq.RedisClientOpt{
+			Addr:     config.Redis.Addr,
+			Password: config.Redis.Password,
+			DB:       config.Redis.DB,
+		}
+
+		asynqmonOptions := asynqmon.Options{
+			RootPath:     config.Asynqmon.RootPath,
+			RedisConnOpt: redisConnOpt,
+			ReadOnly:     config.Asynqmon.ReadOnlyMode,
+		}
+
+		if config.Asynqmon.PrometheusAddr != "" {
+			asynqmonOptions.PrometheusAddress = config.Asynqmon.PrometheusAddr
+		}
+
+		asynqmonHandler = asynqmon.New(asynqmonOptions)
+	}
+
 	return &HTTPHandler{
 		publisher: pub,
 		cache:     cache,
 		logger:    logger.NewDefault(),
+		asynqmon:  asynqmonHandler,
 	}, nil
 }
 
@@ -70,6 +96,10 @@ func (h *HTTPHandler) Close() {
 	if h.publisher != nil {
 		h.publisher.Close()
 	}
+}
+
+func (h *HTTPHandler) GetAsynqmonHandler() *asynqmon.HTTPHandler {
+	return h.asynqmon
 }
 
 func (h *HTTPHandler) PublishHandler(w http.ResponseWriter, r *http.Request) {
