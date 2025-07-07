@@ -112,7 +112,7 @@ func (d *DaemonService) Start() error {
 
 	logger.Info("starting Asynq server", nil)
 	mux := asynq.NewServeMux()
-	mux.HandleFunc(task.TaskTypeFileSync, d.fileSyncHandler.Handle)
+	mux.HandleFunc(task.TaskTypeFileSyncSingle, d.fileSyncHandler.HandleSingleFile)
 	mux.HandleFunc(task.TaskTypeSSHCommand, d.sshHandler.ProcessTask)
 	return d.server.Run(mux)
 }

@@ -37,10 +37,13 @@ Sync4Loong is a file synchronization system based on Go and Asynq, specifically 
 ### Task Definition (pkg/task)
 
 ```go
-const TaskTypeFileSync = "file_sync"
+const TaskTypeFileSyncSingle = "file_sync_single"
 
-type FileSyncPayload struct {
-    Items []SyncItem `json:"items"`
+type FileSyncSinglePayload struct {
+    FilePath        string `json:"file_path"`
+    S3Key           string `json:"s3_key"`
+    DeleteAfterSync bool   `json:"delete_after_sync,omitempty"`
+    Overwrite       bool   `json:"overwrite,omitempty"`
 }
 
 type SyncItem struct {
@@ -128,13 +131,14 @@ type AsynqmonConfig struct {
 
 ### 1. File Sync Handler (pkg/handler/FileSyncHandler)
 
-- Responsible for handling file synchronization tasks
+- Responsible for handling **individual file** synchronization tasks
 - Supports intelligent file skipping (based on file size comparison)
-- Optional forced overwrite mode (configurable per sync item via `overwrite`)
+- Optional forced overwrite mode (configurable per file via `overwrite`)
 - Cross-platform S3 path handling (Windows backslash conversion)
 - Context cancellation support
-- Optional file deletion after successful sync (configurable per sync item via `delete_after_sync`)
+- Optional file deletion after successful sync (configurable per file via `delete_after_sync`)
 - Automatic cleanup of empty directories after file deletion
+- SSH command triggering after each successful file upload
 
 ### 2. HTTP Handler (pkg/http/HTTPHandler)
 
@@ -147,8 +151,10 @@ type AsynqmonConfig struct {
 
 ### 3. Task Publisher (pkg/publisher/Publisher)
 
-- Validates local folder existence and non-emptiness
-- Creates and pushes tasks to Redis queue
+- Validates local folder/file existence and non-emptiness
+- **Automatic symlink resolution** to real file paths
+- **File-level task creation**: Scans directories and creates individual tasks for each file
+- Creates and pushes file-level tasks to Redis queue
 - Supports retry and timeout configuration
 
 ### 4. Daemon Service (internal/daemon/DaemonService)
@@ -227,24 +233,25 @@ sync4loong/
 
 1. HTTP client sends POST request to `/publish` endpoint with JSON payload
 2. HTTP handler validates request payload (from, to, and optional delete_after_sync and overwrite)
-3. Publisher checks local folder existence and non-emptiness
-4. Creates `FileSyncPayload` task payload
-5. Pushes task to Redis queue
-6. Returns JSON response with success/error status
+3. Publisher resolves symlinks to real paths using `filepath.EvalSymlinks()`
+4. Publisher scans directories/files and **creates individual file tasks**
+5. For each file: creates `FileSyncSinglePayload` with file path and S3 key
+6. Pushes **multiple file-level tasks** to Redis queue
+7. Returns JSON response with success/error status
 
 ### 2. Task Execution Flow
 
-1. Daemon retrieves tasks from Redis queue
-2. Recursively traverses all files in the specified folder
-3. Generates S3 key for each file: `prefix + relative path`
-4. Executes intelligent upload decision:
+1. Daemon retrieves **individual file tasks** from Redis queue
+2. Each task contains a single file path and target S3 key
+3. Executes intelligent upload decision for the file:
    - `overwrite` is true → Upload (force overwrite)
    - File doesn't exist → Upload
    - File size differs → Overwrite upload
    - File size same → Skip
-5. Records detailed upload logs and results
-6. Optionally deletes source files after successful upload (if `delete_after_sync` is enabled)
-7. Automatically cleans up empty directories after file deletion
+4. Records detailed upload logs and results for the file
+5. Optionally deletes source file after successful upload (if `delete_after_sync` is enabled)
+6. Automatically cleans up empty directories after file deletion
+7. **Triggers SSH command** after successful file upload (via SSH debouncer)
 
 ### 3. File Existence Check Flow
 
@@ -295,7 +302,7 @@ curl -X POST "http://localhost:8080/publish" \
 ```json
 {
   "success": true,
-  "message": "task published successfully"
+  "message": "file sync tasks published successfully"
 }
 ```
 
@@ -392,3 +399,35 @@ prometheus_addr = ""
 max_concurrent_s3_checks = 10
 allowed_prefixes = ["store/", "nix/"]
 ```
+
+## File-Level Task Architecture
+
+### Key Benefits
+
+- **Independent Failure Handling**: Each file is processed as a separate task, so individual file failures don't affect other files
+- **Granular Retry**: Failed files can be retried independently without re-processing successful files  
+- **Better Parallelism**: Multiple files can be processed concurrently across different workers
+- **Improved Monitoring**: Individual file progress and status can be tracked through Asynqmon
+- **Symlink Support**: Automatic resolution of symbolic links to real file paths during task creation
+
+### Task Flow Example
+
+```
+POST /publish → ["/folder", "store/"]
+     ↓
+Publisher scans /folder → [file1.txt, file2.txt, subdir/file3.txt]
+     ↓
+Creates 3 tasks:
+- file_sync_single: {"/folder/file1.txt" → "store/file1.txt"}
+- file_sync_single: {"/folder/file2.txt" → "store/file2.txt"}  
+- file_sync_single: {"/folder/subdir/file3.txt" → "store/subdir/file3.txt"}
+     ↓
+Each task processed independently with individual retry and SSH triggering
+```
+
+### Performance Characteristics
+
+- **Task Creation**: O(n) where n = number of files (one-time directory scan)
+- **Task Processing**: O(1) per file (independent processing)
+- **Failure Impact**: O(1) per file (localized failure scope)
+- **SSH Triggering**: Per-file basis (may result in more SSH calls, but debounced)

@@ -11,7 +11,6 @@ access_key = "YOUR_ACCESS_KEY_HERE"
 secret_key = "YOUR_SECRET_KEY_HERE"
 
 [daemon]
-concurrency = 4
 log_level = "info"
 ssh_command = "ssh user@host 'sudo nixos-rebuild switch'"
 ssh_debounce_minutes = 5

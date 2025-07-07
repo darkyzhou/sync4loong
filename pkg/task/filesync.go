@@ -1,17 +1,20 @@
 package task
 
 const (
-	TaskTypeFileSync   = "file_sync"
-	TaskTypeSSHCommand = "ssh_command"
+	TaskTypeFileSyncSingle = "file_sync_single"
+	TaskTypeSSHCommand     = "ssh_command"
 )
-
-type FileSyncPayload struct {
-	Items []SyncItem `json:"items"`
-}
 
 type SyncItem struct {
 	From            string `json:"from"`
 	To              string `json:"to"`
+	DeleteAfterSync bool   `json:"delete_after_sync,omitempty"`
+	Overwrite       bool   `json:"overwrite,omitempty"`
+}
+
+type FileSyncSinglePayload struct {
+	FilePath        string `json:"file_path"`
+	S3Key           string `json:"s3_key"`
 	DeleteAfterSync bool   `json:"delete_after_sync,omitempty"`
 	Overwrite       bool   `json:"overwrite,omitempty"`
 }

@@ -141,21 +141,21 @@ func (h *HTTPHandler) PublishHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.publisher.PublishFileSyncTask(items); err != nil {
-		h.logger.Error("failed to publish task", err, map[string]any{
+	if err := h.publisher.PublishFileSyncTaskAsFiles(items); err != nil {
+		h.logger.Error("failed to publish file sync tasks", err, map[string]any{
 			"items_count": len(req),
 		})
 		h.sendErrorResponse(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	h.logger.Info("task published via HTTP", map[string]any{
+	h.logger.Info("file sync tasks published via HTTP", map[string]any{
 		"items_count": len(req),
 	})
 
 	response := PublishResponse{
 		Success: true,
-		Message: "task published successfully",
+		Message: "file sync tasks published successfully",
 	}
 
 	w.Header().Set("Content-Type", "application/json")

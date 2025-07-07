@@ -35,7 +35,6 @@ type S3Config struct {
 	FileUploadRetryCount        int `mapstructure:"file_upload_retry_count" validate:"min=0,max=5"`
 	FileUploadRetryDelaySeconds int `mapstructure:"file_upload_retry_delay_seconds" validate:"min=1,max=30"`
 	FileUploadTimeoutSeconds    int `mapstructure:"file_upload_timeout_seconds" validate:"min=1,max=100000"`
-	FileUploadConcurrency       int `mapstructure:"file_upload_concurrency" validate:"min=1,max=50"`
 
 	EnableIntegrityCheck bool `mapstructure:"enable_integrity_check"`
 }
@@ -109,7 +108,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("s3.file_upload_retry_count", 2)
 	v.SetDefault("s3.file_upload_retry_delay_seconds", 2)
 	v.SetDefault("s3.file_upload_timeout_seconds", 4*60*60) // 4 hours
-	v.SetDefault("s3.file_upload_concurrency", 4)
 	v.SetDefault("s3.enable_integrity_check", true)
 
 	v.SetDefault("daemon.log_level", "info")
@@ -119,7 +117,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("daemon.enable_ssh_task", false)
 
 	v.SetDefault("publish.max_retry", 3)
-	v.SetDefault("publish.timeout_minutes", 60*12) // 12 hours
+	v.SetDefault("publish.timeout_minutes", 60*6) // 6 hours
 
 	v.SetDefault("http.addr", ":8080")
 

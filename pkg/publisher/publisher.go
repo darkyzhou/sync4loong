@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"sync4loong/pkg/config"
@@ -45,12 +47,49 @@ type SyncItem struct {
 	Overwrite       bool   `json:"overwrite,omitempty"`
 }
 
-func (p *Publisher) PublishFileSyncTask(items []SyncItem) error {
+// scanFiles recursively scans a directory and returns all file paths
+func (p *Publisher) scanFiles(dir string) ([]string, error) {
+	var files []string
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			files = append(files, path)
+		}
+		return nil
+	})
+	return files, err
+}
+
+// generateS3Key generates S3 key from target path and file path
+func (p *Publisher) generateS3Key(targetPath, filePath, basePath string) string {
+	// Get relative path from base path
+	relPath, err := filepath.Rel(basePath, filePath)
+	if err != nil {
+		// If can't get relative path, use filename
+		relPath = filepath.Base(filePath)
+	}
+
+	// Convert Windows path separators to forward slashes
+	relPath = strings.ReplaceAll(relPath, "\\", "/")
+
+	// Combine with target path
+	if strings.HasSuffix(targetPath, "/") {
+		return targetPath + relPath
+	}
+	return targetPath + "/" + relPath
+}
+
+// PublishFileSyncTaskAsFiles publishes file sync task as individual file tasks
+func (p *Publisher) PublishFileSyncTaskAsFiles(items []SyncItem) error {
 	if len(items) == 0 {
 		return fmt.Errorf("at least one sync item is required")
 	}
 
-	// Validate all items first
+	var totalFiles int
+
+	// Process each sync item
 	for i, item := range items {
 		if item.From == "" {
 			return fmt.Errorf("'from' field is required for item %d", i)
@@ -59,66 +98,77 @@ func (p *Publisher) PublishFileSyncTask(items []SyncItem) error {
 			return fmt.Errorf("'to' field is required for item %d", i)
 		}
 
-		// Check if source path exists
-		if _, err := os.Stat(item.From); errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("source not found: %s", item.From)
+		// Resolve symlink to get real path
+		realPath, err := filepath.EvalSymlinks(item.From)
+		if err != nil {
+			return fmt.Errorf("resolve symlink %s: %w", item.From, err)
 		}
 
-		// If it's a directory, check if it has valid files
-		if stat, err := os.Stat(item.From); err == nil && stat.IsDir() {
-			entries, err := os.ReadDir(item.From)
+		// Check if resolved path exists
+		stat, err := os.Stat(realPath)
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("source not found: %s", realPath)
+		}
+		if err != nil {
+			return fmt.Errorf("stat %s: %w", realPath, err)
+		}
+
+		var files []string
+		var basePath string
+		if stat.IsDir() {
+			// For directory, scan all files
+			files, err = p.scanFiles(realPath)
 			if err != nil {
-				return fmt.Errorf("read directory %s: %w", item.From, err)
+				return fmt.Errorf("scan directory %s: %w", realPath, err)
+			}
+			if len(files) == 0 {
+				return fmt.Errorf("directory is empty: %s", realPath)
+			}
+			basePath = realPath
+		} else {
+			// For single file
+			files = []string{realPath}
+			basePath = realPath
+		}
+
+		// Create task for each file
+		for _, file := range files {
+			var s3Key string
+			if stat.IsDir() {
+				s3Key = p.generateS3Key(item.To, file, basePath)
+			} else {
+				// For single file, use target path as S3 key
+				s3Key = item.To
 			}
 
-			hasValidFiles := false
-			for _, entry := range entries {
-				name := entry.Name()
-				if len(name) > 0 && name[0] != '.' {
-					hasValidFiles = true
-					break
-				}
+			payload := task.FileSyncSinglePayload{
+				FilePath:        file,
+				S3Key:           s3Key,
+				DeleteAfterSync: item.DeleteAfterSync,
+				Overwrite:       item.Overwrite,
 			}
 
-			if !hasValidFiles {
-				return fmt.Errorf("directory is empty or contains only hidden files: %s", item.From)
+			payloadBytes, err := json.Marshal(payload)
+			if err != nil {
+				return fmt.Errorf("marshal payload for %s: %w", file, err)
 			}
+
+			taskObj := asynq.NewTask(task.TaskTypeFileSyncSingle, payloadBytes)
+			_, err = p.client.Enqueue(
+				taskObj,
+				asynq.MaxRetry(p.config.Publish.MaxRetry),
+				asynq.Timeout(time.Duration(p.config.Publish.TimeoutMinutes)*time.Minute),
+				asynq.Retention(24*time.Hour),
+			)
+			if err != nil {
+				return fmt.Errorf("enqueue task for %s: %w", file, err)
+			}
+			totalFiles++
 		}
 	}
 
-	syncItems := make([]task.SyncItem, len(items))
-	for i, item := range items {
-		syncItems[i] = task.SyncItem{
-			From:            item.From,
-			To:              item.To,
-			DeleteAfterSync: item.DeleteAfterSync,
-			Overwrite:       item.Overwrite,
-		}
-	}
-
-	payload := task.FileSyncPayload{
-		Items: syncItems,
-	}
-
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal payload: %w", err)
-	}
-
-	taskObj := asynq.NewTask(task.TaskTypeFileSync, payloadBytes)
-	info, err := p.client.Enqueue(
-		taskObj,
-		asynq.MaxRetry(p.config.Publish.MaxRetry),
-		asynq.Timeout(time.Duration(p.config.Publish.TimeoutMinutes)*time.Minute),
-		asynq.Retention(24*time.Hour),
-	)
-	if err != nil {
-		return fmt.Errorf("enqueue task: %w", err)
-	}
-
-	logger.Info("task enqueued successfully", map[string]any{
-		"task_id":     info.ID,
-		"queue":       info.Queue,
+	logger.Info("file sync tasks enqueued successfully", map[string]any{
+		"total_files": totalFiles,
 		"items_count": len(items),
 	})
 	return nil

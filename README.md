@@ -1,6 +1,6 @@
 # Sync4Loong
 
-A file synchronization system built with Go and Asynq for the nix4loong CI infrastructure. It synchronizes local folders to S3-compatible storage through a distributed task queue.
+A file synchronization system built with Go and Asynq for the nix4loong CI infrastructure. It synchronizes local folders to S3-compatible storage through a distributed task queue using **file-level tasks** for improved reliability and granular retry capabilities.
 
 ## Components
 
@@ -40,3 +40,10 @@ curl -X GET http://localhost:8080/check/store/bin/bash
 # Using query parameter  
 curl -X GET "http://localhost:8080/check?key=store/bin/bash"
 ```
+
+## Architecture Features
+
+- **File-level tasks**: Each file is processed as an independent task for better failure isolation
+- **Symlink support**: Automatic resolution of symbolic links during task creation
+- **Granular retry**: Individual files can be retried without affecting other files
+- **SSH triggering**: Automatic SSH command execution after each successful file upload
