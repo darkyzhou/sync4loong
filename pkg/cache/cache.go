@@ -26,11 +26,11 @@ type FileInfo struct {
 }
 
 type CheckResult struct {
-	Exists    bool      `json:"exists"`
-	Cached    bool      `json:"cached"`
-	Size      int64     `json:"size,omitempty"`
-	Timestamp time.Time `json:"timestamp"`
-	S3Key     string    `json:"s3_key"`
+	Exists     bool      `json:"exists"`
+	Cached     bool      `json:"cached"`
+	Size       int64     `json:"size,omitempty"`
+	Timestamp  time.Time `json:"timestamp"`
+	TargetPath string    `json:"target_path"`
 }
 
 type FileExistenceCache struct {
@@ -52,24 +52,24 @@ func NewFileExistenceCache(redisClient *redis.Client, s3Client *s3.S3, config *c
 	}
 }
 
-func (c *FileExistenceCache) CheckFileExists(ctx context.Context, s3Key string) (*CheckResult, error) {
-	if err := c.validateS3Key(s3Key); err != nil {
+func (c *FileExistenceCache) CheckFileExists(ctx context.Context, targetPath string) (*CheckResult, error) {
+	if err := c.validateTargetPath(targetPath); err != nil {
 		return nil, err
 	}
 
-	cacheKey := c.getCacheKey(s3Key)
+	cacheKey := c.getCacheKey(targetPath)
 	cachedInfo, err := c.getCachedInfo(ctx, cacheKey)
 	if err == nil {
 		return &CheckResult{
-			Exists:    cachedInfo.Exists,
-			Cached:    true,
-			Size:      cachedInfo.Size,
-			Timestamp: cachedInfo.Timestamp,
-			S3Key:     s3Key,
+			Exists:     cachedInfo.Exists,
+			Cached:     true,
+			Size:       cachedInfo.Size,
+			Timestamp:  cachedInfo.Timestamp,
+			TargetPath: targetPath,
 		}, nil
 	}
 
-	lockKey := fmt.Sprintf("lock:%s", s3Key)
+	lockKey := fmt.Sprintf("lock:%s", targetPath)
 	if _, loaded := c.locks.LoadOrStore(lockKey, struct{}{}); loaded {
 		for {
 			time.Sleep(10 * time.Millisecond)
@@ -81,11 +81,11 @@ func (c *FileExistenceCache) CheckFileExists(ctx context.Context, s3Key string) 
 		cachedInfo, err := c.getCachedInfo(ctx, cacheKey)
 		if err == nil {
 			return &CheckResult{
-				Exists:    cachedInfo.Exists,
-				Cached:    true,
-				Size:      cachedInfo.Size,
-				Timestamp: cachedInfo.Timestamp,
-				S3Key:     s3Key,
+				Exists:     cachedInfo.Exists,
+				Cached:     true,
+				Size:       cachedInfo.Size,
+				Timestamp:  cachedInfo.Timestamp,
+				TargetPath: targetPath,
 			}, nil
 		}
 	}
@@ -97,7 +97,7 @@ func (c *FileExistenceCache) CheckFileExists(ctx context.Context, s3Key string) 
 	}
 	defer c.s3Semaphore.Release(1)
 
-	exists, size, err := c.checkS3FileExists(ctx, s3Key)
+	exists, size, err := c.checkS3FileExists(ctx, targetPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check S3: %w", err)
 	}
@@ -111,22 +111,22 @@ func (c *FileExistenceCache) CheckFileExists(ctx context.Context, s3Key string) 
 	if c.redisClient != nil {
 		if err := c.setCachedInfo(ctx, cacheKey, fileInfo); err != nil {
 			c.logger.Error("failed to cache file info", err, map[string]any{
-				"s3_key": s3Key,
+				"target_path": targetPath,
 			})
 		}
 	}
 
 	return &CheckResult{
-		Exists:    exists,
-		Cached:    false,
-		Size:      size,
-		Timestamp: fileInfo.Timestamp,
-		S3Key:     s3Key,
+		Exists:     exists,
+		Cached:     false,
+		Size:       size,
+		Timestamp:  fileInfo.Timestamp,
+		TargetPath: targetPath,
 	}, nil
 }
 
-func (c *FileExistenceCache) SetFileExists(ctx context.Context, s3Key string, size int64) error {
-	if err := c.validateS3Key(s3Key); err != nil {
+func (c *FileExistenceCache) SetFileExists(ctx context.Context, targetPath string, size int64) error {
+	if err := c.validateTargetPath(targetPath); err != nil {
 		return err
 	}
 
@@ -134,7 +134,7 @@ func (c *FileExistenceCache) SetFileExists(ctx context.Context, s3Key string, si
 		return nil
 	}
 
-	cacheKey := c.getCacheKey(s3Key)
+	cacheKey := c.getCacheKey(targetPath)
 	fileInfo := &FileInfo{
 		Exists:    true,
 		Size:      size,
@@ -148,23 +148,23 @@ func (c *FileExistenceCache) GetAllowedPrefixes() []string {
 	return c.config.Cache.AllowedPrefixes
 }
 
-func (c *FileExistenceCache) validateS3Key(s3Key string) error {
-	if s3Key == "" {
-		return fmt.Errorf("s3 key cannot be empty")
+func (c *FileExistenceCache) validateTargetPath(targetPath string) error {
+	if targetPath == "" {
+		return fmt.Errorf("target path cannot be empty")
 	}
 
-	if len(s3Key) > 1024 {
-		return fmt.Errorf("s3 key too long")
+	if len(targetPath) > 1024 {
+		return fmt.Errorf("target path too long")
 	}
 
-	cleanKey := filepath.Clean(s3Key)
+	cleanKey := filepath.Clean(targetPath)
 	if strings.Contains(cleanKey, "..") {
-		return fmt.Errorf("invalid s3 key: path traversal detected")
+		return fmt.Errorf("invalid target path: path traversal detected")
 	}
 
 	allowed := false
 	for _, prefix := range c.config.Cache.AllowedPrefixes {
-		if strings.HasPrefix(s3Key, prefix) {
+		if strings.HasPrefix(targetPath, prefix) {
 			allowed = true
 			break
 		}
@@ -177,8 +177,8 @@ func (c *FileExistenceCache) validateS3Key(s3Key string) error {
 	return nil
 }
 
-func (c *FileExistenceCache) getCacheKey(s3Key string) string {
-	return fmt.Sprintf("file_exists:%s:%s", c.config.S3.Bucket, s3Key)
+func (c *FileExistenceCache) getCacheKey(targetPath string) string {
+	return fmt.Sprintf("file_exists:%s:%s", c.config.Storage.S3.Bucket, targetPath)
 }
 
 func (c *FileExistenceCache) getCachedInfo(ctx context.Context, cacheKey string) (*FileInfo, error) {
@@ -208,9 +208,9 @@ func (c *FileExistenceCache) setCachedInfo(ctx context.Context, cacheKey string,
 	return c.redisClient.Set(ctx, cacheKey, data, 0).Err()
 }
 
-func (c *FileExistenceCache) ClearCache(ctx context.Context, s3Key string) error {
-	if s3Key != "" {
-		if err := c.validateS3Key(s3Key); err != nil {
+func (c *FileExistenceCache) ClearCache(ctx context.Context, targetPath string) error {
+	if targetPath != "" {
+		if err := c.validateTargetPath(targetPath); err != nil {
 			return err
 		}
 
@@ -218,7 +218,7 @@ func (c *FileExistenceCache) ClearCache(ctx context.Context, s3Key string) error
 			return nil
 		}
 
-		cacheKey := c.getCacheKey(s3Key)
+		cacheKey := c.getCacheKey(targetPath)
 		return c.redisClient.Del(ctx, cacheKey).Err()
 	}
 
@@ -226,7 +226,7 @@ func (c *FileExistenceCache) ClearCache(ctx context.Context, s3Key string) error
 		return nil
 	}
 
-	pattern := fmt.Sprintf("file_exists:%s:*", c.config.S3.Bucket)
+	pattern := fmt.Sprintf("file_exists:%s:*", c.config.Storage.S3.Bucket)
 	keys, err := c.redisClient.Keys(ctx, pattern).Result()
 	if err != nil {
 		return err
@@ -239,10 +239,10 @@ func (c *FileExistenceCache) ClearCache(ctx context.Context, s3Key string) error
 	return nil
 }
 
-func (c *FileExistenceCache) checkS3FileExists(ctx context.Context, s3Key string) (bool, int64, error) {
+func (c *FileExistenceCache) checkS3FileExists(ctx context.Context, targetPath string) (bool, int64, error) {
 	input := &s3.HeadObjectInput{
-		Bucket: aws.String(c.config.S3.Bucket),
-		Key:    aws.String(s3Key),
+		Bucket: aws.String(c.config.Storage.S3.Bucket),
+		Key:    aws.String(targetPath),
 	}
 
 	result, err := c.s3Client.HeadObjectWithContext(ctx, input)

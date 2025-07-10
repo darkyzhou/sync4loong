@@ -3,7 +3,10 @@ addr = "localhost:6379"
 password = ""
 db = 0
 
-[s3]
+[storage]
+type = "s3"
+
+[storage.s3]
 endpoint = "https://example.com"
 region = "us-east-1"
 bucket = "nix4loong"

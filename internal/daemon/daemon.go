@@ -14,6 +14,7 @@ import (
 	httpHandler "sync4loong/pkg/http"
 	"sync4loong/pkg/logger"
 	"sync4loong/pkg/s3"
+	"sync4loong/pkg/storage"
 	"sync4loong/pkg/task"
 )
 
@@ -48,14 +49,38 @@ func NewDaemonService(config *config.Config) (*DaemonService, error) {
 
 	asyncClient := asynq.NewClient(redisOpt)
 
-	s3Client, err := s3.CreateS3Client(config)
+	logger.Info("creating storage backend", map[string]any{"type": config.Storage.Type})
+	storageFactory := storage.NewStorageFactory()
+	storageBackend, err := storageFactory.CreateS3Backend(&storage.S3Config{
+		Endpoint:                    config.Storage.S3.Endpoint,
+		Region:                      config.Storage.S3.Region,
+		Bucket:                      config.Storage.S3.Bucket,
+		AccessKey:                   config.Storage.S3.AccessKey,
+		SecretKey:                   config.Storage.S3.SecretKey,
+		MaxRetries:                  config.Storage.S3.MaxRetries,
+		FileUploadRetryCount:        config.Storage.S3.FileUploadRetryCount,
+		FileUploadRetryDelaySeconds: config.Storage.S3.FileUploadRetryDelaySeconds,
+		FileUploadTimeoutSeconds:    config.Storage.S3.FileUploadTimeoutSeconds,
+		EnableIntegrityCheck:        config.Storage.S3.EnableIntegrityCheck,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("create s3 client: %w", err)
+		return nil, fmt.Errorf("create storage backend: %w", err)
+	}
+
+	s3Client, err := s3.CreateS3Client(&s3.Config{
+		Endpoint:  config.Storage.S3.Endpoint,
+		Region:    config.Storage.S3.Region,
+		Bucket:    config.Storage.S3.Bucket,
+		AccessKey: config.Storage.S3.AccessKey,
+		SecretKey: config.Storage.S3.SecretKey,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create s3 client for cache: %w", err)
 	}
 
 	fileCache := cache.NewFileExistenceCache(redisClient, s3Client, config)
 
-	fileSyncHandler := handler.NewFileSyncHandler(s3Client, config, redisClient, asyncClient, fileCache)
+	fileSyncHandler := handler.NewFileSyncHandler(storageBackend, config, redisClient, asyncClient, fileCache)
 	sshHandler := handler.NewSSHHandler(&config.Daemon, logger.NewDefault(), redisClient, asyncClient)
 
 	httpHandler, err := httpHandler.NewHTTPHandler(config, fileCache)
@@ -70,7 +95,6 @@ func NewDaemonService(config *config.Config) (*DaemonService, error) {
 	mux.HandleFunc("/clear-cache/", httpHandler.ClearCacheHandler)
 	mux.HandleFunc("/clear-cache", httpHandler.ClearCacheHandler)
 
-	// Register asynqmon handler if enabled
 	if asynqmonHandler := httpHandler.GetAsynqmonHandler(); asynqmonHandler != nil {
 		mux.Handle(asynqmonHandler.RootPath()+"/", asynqmonHandler)
 	}

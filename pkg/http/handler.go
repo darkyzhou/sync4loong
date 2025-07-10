@@ -42,7 +42,7 @@ type CheckResponse struct {
 	Cached          bool     `json:"cached"`
 	Size            int64    `json:"size,omitempty"`
 	Timestamp       string   `json:"timestamp"`
-	S3Key           string   `json:"s3_key"`
+	TargetPath      string   `json:"target_path"`
 	AllowedPrefixes []string `json:"allowed_prefixes,omitempty"`
 }
 
@@ -130,7 +130,6 @@ func (h *HTTPHandler) PublishHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Convert to publisher.SyncItem slice
 	items := make([]publisher.SyncItem, len(req))
 	for i, item := range req {
 		items[i] = publisher.SyncItem{
@@ -184,21 +183,21 @@ func (h *HTTPHandler) CheckFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var s3Key string
+	var targetPath string
 
 	path := r.URL.Path
 	if strings.HasPrefix(path, "/check/") {
-		s3Key = strings.TrimPrefix(path, "/check/")
+		targetPath = strings.TrimPrefix(path, "/check/")
 	} else {
-		s3Key = r.URL.Query().Get("key")
+		targetPath = r.URL.Query().Get("key")
 	}
 
-	if s3Key == "" {
-		h.sendCheckErrorResponse(w, http.StatusBadRequest, "s3 key is required")
+	if targetPath == "" {
+		h.sendCheckErrorResponse(w, http.StatusBadRequest, "target path is required")
 		return
 	}
 
-	result, err := h.cache.CheckFileExists(r.Context(), s3Key)
+	result, err := h.cache.CheckFileExists(r.Context(), targetPath)
 	if err != nil {
 		if strings.Contains(err.Error(), "not allowed") || strings.Contains(err.Error(), "invalid") {
 			h.sendCheckErrorResponse(w, http.StatusBadRequest, err.Error())
@@ -206,18 +205,18 @@ func (h *HTTPHandler) CheckFileHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		h.logger.Error("failed to check file existence", err, map[string]any{
-			"s3_key": s3Key,
+			"target_path": targetPath,
 		})
 		h.sendCheckErrorResponse(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
 	response := CheckResponse{
-		Exists:    result.Exists,
-		Cached:    result.Cached,
-		Size:      result.Size,
-		Timestamp: result.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
-		S3Key:     result.S3Key,
+		Exists:     result.Exists,
+		Cached:     result.Cached,
+		Size:       result.Size,
+		Timestamp:  result.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+		TargetPath: result.TargetPath,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -251,36 +250,36 @@ func (h *HTTPHandler) ClearCacheHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var s3Key string
+	var targetPath string
 
 	path := r.URL.Path
 	if strings.HasPrefix(path, "/clear-cache/") {
-		s3Key = strings.TrimPrefix(path, "/clear-cache/")
+		targetPath = strings.TrimPrefix(path, "/clear-cache/")
 	} else {
-		s3Key = r.URL.Query().Get("key")
+		targetPath = r.URL.Query().Get("key")
 	}
 
-	if err := h.cache.ClearCache(r.Context(), s3Key); err != nil {
+	if err := h.cache.ClearCache(r.Context(), targetPath); err != nil {
 		if strings.Contains(err.Error(), "not allowed") || strings.Contains(err.Error(), "invalid") {
 			h.sendClearCacheErrorResponse(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
 		h.logger.Error("failed to clear cache", err, map[string]any{
-			"s3_key": s3Key,
+			"target_path": targetPath,
 		})
 		h.sendClearCacheErrorResponse(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
 	var message string
-	if s3Key == "" {
+	if targetPath == "" {
 		message = "all cache cleared successfully"
 		h.logger.Info("all cache cleared via HTTP", nil)
 	} else {
-		message = fmt.Sprintf("cache cleared for key: %s", s3Key)
+		message = fmt.Sprintf("cache cleared for key: %s", targetPath)
 		h.logger.Info("cache cleared via HTTP", map[string]any{
-			"s3_key": s3Key,
+			"target_path": targetPath,
 		})
 	}
 

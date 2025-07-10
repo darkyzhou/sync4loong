@@ -62,8 +62,8 @@ func (p *Publisher) scanFiles(dir string) ([]string, error) {
 	return files, err
 }
 
-// generateS3Key generates S3 key from target path and file path
-func (p *Publisher) generateS3Key(targetPath, filePath, basePath string) string {
+// generateTargetPath generates target path from target path and file path
+func (p *Publisher) generateTargetPath(targetPath, filePath, basePath string) string {
 	// Get relative path from base path
 	relPath, err := filepath.Rel(basePath, filePath)
 	if err != nil {
@@ -89,7 +89,6 @@ func (p *Publisher) PublishFileSyncTaskAsFiles(items []SyncItem) error {
 
 	var totalFiles int
 
-	// Process each sync item
 	for i, item := range items {
 		if item.From == "" {
 			return fmt.Errorf("'from' field is required for item %d", i)
@@ -104,7 +103,6 @@ func (p *Publisher) PublishFileSyncTaskAsFiles(items []SyncItem) error {
 			return fmt.Errorf("resolve symlink %s: %w", item.From, err)
 		}
 
-		// Check if resolved path exists
 		stat, err := os.Stat(realPath)
 		if errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("source not found: %s", realPath)
@@ -133,17 +131,17 @@ func (p *Publisher) PublishFileSyncTaskAsFiles(items []SyncItem) error {
 
 		// Create task for each file
 		for _, file := range files {
-			var s3Key string
+			var targetPath string
 			if stat.IsDir() {
-				s3Key = p.generateS3Key(item.To, file, basePath)
+				targetPath = p.generateTargetPath(item.To, file, basePath)
 			} else {
-				// For single file, use target path as S3 key
-				s3Key = item.To
+				// For single file, use target path as is
+				targetPath = item.To
 			}
 
 			payload := task.FileSyncSinglePayload{
 				FilePath:        file,
-				S3Key:           s3Key,
+				TargetPath:      targetPath,
 				DeleteAfterSync: item.DeleteAfterSync,
 				Overwrite:       item.Overwrite,
 			}

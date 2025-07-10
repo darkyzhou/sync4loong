@@ -9,7 +9,7 @@ import (
 
 type Config struct {
 	Redis    RedisConfig    `mapstructure:"redis" validate:"required"`
-	S3       S3Config       `mapstructure:"s3" validate:"required"`
+	Storage  StorageConfig  `mapstructure:"storage" validate:"required"`
 	Daemon   DaemonConfig   `mapstructure:"daemon" validate:"required"`
 	Publish  PublishConfig  `mapstructure:"publish" validate:"required"`
 	HTTP     HTTPConfig     `mapstructure:"http" validate:"required"`
@@ -21,6 +21,11 @@ type RedisConfig struct {
 	Addr     string `mapstructure:"addr" validate:"required,hostname_port"`
 	Password string `mapstructure:"password"`
 	DB       int    `mapstructure:"db" validate:"min=0,max=15"`
+}
+
+type StorageConfig struct {
+	Type string    `mapstructure:"type" validate:"required,oneof=s3"`
+	S3   *S3Config `mapstructure:"s3"`
 }
 
 type S3Config struct {
@@ -101,14 +106,13 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("redis.password", "")
 	v.SetDefault("redis.db", 0)
 
-	v.SetDefault("s3.region", "us-east-1")
-	v.SetDefault("s3.max_retries", 3)
-	v.SetDefault("s3.retry_delay_seconds", 2)
-	v.SetDefault("s3.max_retry_delay_seconds", 30)
-	v.SetDefault("s3.file_upload_retry_count", 2)
-	v.SetDefault("s3.file_upload_retry_delay_seconds", 2)
-	v.SetDefault("s3.file_upload_timeout_seconds", 4*60*60) // 4 hours
-	v.SetDefault("s3.enable_integrity_check", true)
+	v.SetDefault("storage.type", "s3")
+	v.SetDefault("storage.s3.region", "us-east-1")
+	v.SetDefault("storage.s3.max_retries", 3)
+	v.SetDefault("storage.s3.file_upload_retry_count", 2)
+	v.SetDefault("storage.s3.file_upload_retry_delay_seconds", 2)
+	v.SetDefault("storage.s3.file_upload_timeout_seconds", 4*60*60) // 4 hours
+	v.SetDefault("storage.s3.enable_integrity_check", true)
 
 	v.SetDefault("daemon.log_level", "info")
 	v.SetDefault("daemon.ssh_command", "")

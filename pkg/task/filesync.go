@@ -14,7 +14,7 @@ type SyncItem struct {
 
 type FileSyncSinglePayload struct {
 	FilePath        string `json:"file_path"`
-	S3Key           string `json:"s3_key"`
+	TargetPath      string `json:"target_path"`
 	DeleteAfterSync bool   `json:"delete_after_sync,omitempty"`
 	Overwrite       bool   `json:"overwrite,omitempty"`
 }

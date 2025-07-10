@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Sync4Loong is a file synchronization system based on Go and Asynq, specifically designed for synchronizing local folders to S3 storage. The system consists of one core component:
+Sync4Loong is a file synchronization system based on Go and Asynq, specifically designed for synchronizing local folders to configurable storage backends. The system consists of one core component:
 
 - **daemon**: Background daemon process with integrated HTTP API, responsible for accepting task submissions via HTTP and consuming the queue to execute file upload tasks, includes optional asynqmon web UI for queue monitoring
 
@@ -10,9 +10,9 @@ Sync4Loong is a file synchronization system based on Go and Asynq, specifically 
 
 ```
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│HTTP Client  │───▶│   daemon    │───▶│   Redis     │    │ S3 Storage  │
-│(curl/wget)  │    │ (HTTP API + │    │  (Message   │    │ nix4loong   │
-│             │    │  Worker)    │    │   Broker)   │    │   bucket    │
+│HTTP Client  │───▶│   daemon    │───▶│   Redis     │    │   Storage   │
+│(curl/wget)  │    │ (HTTP API + │    │  (Message   │    │   Backend   │
+│             │    │  Worker)    │    │   Broker)   │    │(S3/Others)  │
 └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
                            │               │ ▲                    ▲
                            │               │ │                    │
@@ -28,7 +28,7 @@ Sync4Loong is a file synchronization system based on Go and Asynq, specifically 
 - **HTTP API**: Standard Go net/http for REST endpoints
 - **Task Queue**: Asynq (based on Redis)
 - **Configuration Management**: Viper + TOML, supports environment variables, default values, validation and hot reload
-- **Storage**: Supports S3-compatible object storage
+- **Storage**: Pluggable storage backend architecture with S3-compatible storage implementation
 - **Logging**: Structured logging (logfmt format), thread-safe
 - **Validation**: go-playground/validator for configuration validation
 
@@ -41,7 +41,7 @@ const TaskTypeFileSyncSingle = "file_sync_single"
 
 type FileSyncSinglePayload struct {
     FilePath        string `json:"file_path"`
-    S3Key           string `json:"s3_key"`
+    TargetPath      string `json:"target_path"`
     DeleteAfterSync bool   `json:"delete_after_sync,omitempty"`
     Overwrite       bool   `json:"overwrite,omitempty"`
 }
@@ -74,73 +74,103 @@ type SyncItemResult struct {
 
 ```go
 type Config struct {
-    Redis    RedisConfig    `toml:"redis" validate:"required"`
-    S3       S3Config       `toml:"s3" validate:"required"`
-    Daemon   DaemonConfig   `toml:"daemon" validate:"required"`
-    Publish  PublishConfig  `toml:"publish" validate:"required"`
-    HTTP     HTTPConfig     `toml:"http" validate:"required"`
-    Cache    CacheConfig    `toml:"cache" validate:"required"`
-    Asynqmon AsynqmonConfig `toml:"asynqmon" validate:"required"`
+    Redis    RedisConfig    `mapstructure:"redis" validate:"required"`
+    Storage  StorageConfig  `mapstructure:"storage" validate:"required"`
+    Daemon   DaemonConfig   `mapstructure:"daemon" validate:"required"`
+    Publish  PublishConfig  `mapstructure:"publish" validate:"required"`
+    HTTP     HTTPConfig     `mapstructure:"http" validate:"required"`
+    Cache    CacheConfig    `mapstructure:"cache" validate:"required"`
+    Asynqmon AsynqmonConfig `mapstructure:"asynqmon" validate:"required"`
 }
 
 type RedisConfig struct {
-    Addr     string `toml:"addr" validate:"required,hostname_port"`
-    Password string `toml:"password"`
-    DB       int    `toml:"db" validate:"min=0,max=15"`
+    Addr     string `mapstructure:"addr" validate:"required,hostname_port"`
+    Password string `mapstructure:"password"`
+    DB       int    `mapstructure:"db" validate:"min=0,max=15"`
+}
+
+type StorageConfig struct {
+    Type string    `mapstructure:"type" validate:"required,oneof=s3"`
+    S3   *S3Config `mapstructure:"s3"`
 }
 
 type S3Config struct {
-    Endpoint  string `toml:"endpoint" validate:"required,url"`
-    Region    string `toml:"region" validate:"required,min=1"`
-    Bucket    string `toml:"bucket" validate:"required,min=1"`
-    AccessKey string `toml:"access_key" validate:"required,min=1"`
-    SecretKey string `toml:"secret_key" validate:"required,min=1"`
+    Endpoint                    string `mapstructure:"endpoint" validate:"required,url"`
+    Region                      string `mapstructure:"region" validate:"required,min=1"`
+    Bucket                      string `mapstructure:"bucket" validate:"required,min=1"`
+    AccessKey                   string `mapstructure:"access_key" validate:"required,min=1"`
+    SecretKey                   string `mapstructure:"secret_key" validate:"required,min=1"`
+    MaxRetries                  int    `mapstructure:"max_retries" validate:"min=0,max=10"`
+    FileUploadRetryCount        int    `mapstructure:"file_upload_retry_count" validate:"min=0,max=5"`
+    FileUploadRetryDelaySeconds int    `mapstructure:"file_upload_retry_delay_seconds" validate:"min=1,max=30"`
+    FileUploadTimeoutSeconds    int    `mapstructure:"file_upload_timeout_seconds" validate:"min=1,max=100000"`
+    EnableIntegrityCheck        bool   `mapstructure:"enable_integrity_check"`
 }
 
 type DaemonConfig struct {
-    LogLevel           string `toml:"log_level" validate:"required,oneof=debug info warn error fatal"`
-    SSHCommand         string `toml:"ssh_command"`
-    SSHDebounceMinutes int    `toml:"ssh_debounce_minutes" validate:"min=1"`
-    SSHTimeoutMinutes  int    `toml:"ssh_timeout_minutes" validate:"min=1"`
-    EnableSSHTask      bool   `toml:"enable_ssh_task"`
+    LogLevel           string `mapstructure:"log_level" validate:"required,oneof=debug info warn error fatal"`
+    SSHCommand         string `mapstructure:"ssh_command"`
+    SSHDebounceMinutes int    `mapstructure:"ssh_debounce_minutes" validate:"min=1"`
+    SSHTimeoutMinutes  int    `mapstructure:"ssh_timeout_minutes" validate:"min=1"`
+    EnableSSHTask      bool   `mapstructure:"enable_ssh_task"`
 }
 
 type PublishConfig struct {
-    MaxRetry       int `toml:"max_retry" validate:"required,min=0,max=10"`
-    TimeoutMinutes int `toml:"timeout_minutes" validate:"required,min=1,max=1440"`
+    MaxRetry       int `mapstructure:"max_retry" validate:"required,min=0,max=10"`
+    TimeoutMinutes int `mapstructure:"timeout_minutes" validate:"required,min=1,max=1440"`
 }
 
 type HTTPConfig struct {
-    Addr string `toml:"addr" validate:"required,hostname_port"`
+    Addr string `mapstructure:"addr" validate:"required,hostname_port"`
 }
 
 type CacheConfig struct {
-    MaxConcurrentS3Checks int      `toml:"max_concurrent_s3_checks" validate:"min=1,max=100"`
-    AllowedPrefixes       []string `toml:"allowed_prefixes" validate:"required,min=1"`
+    MaxConcurrentS3Checks int      `mapstructure:"max_concurrent_s3_checks" validate:"min=1,max=100"`
+    AllowedPrefixes       []string `mapstructure:"allowed_prefixes" validate:"required,min=1"`
 }
 
 type AsynqmonConfig struct {
-    Enabled        bool   `toml:"enabled"`
-    RootPath       string `toml:"root_path" validate:"required"`
-    ReadOnlyMode   bool   `toml:"read_only_mode"`
-    PrometheusAddr string `toml:"prometheus_addr" validate:"omitempty,hostname_port"`
+    Enabled        bool   `mapstructure:"enabled"`
+    RootPath       string `mapstructure:"root_path" validate:"required"`
+    ReadOnlyMode   bool   `mapstructure:"read_only_mode"`
+    PrometheusAddr string `mapstructure:"prometheus_addr" validate:"omitempty,hostname_port"`
 }
 ```
 
 ## Core Component Design
 
-### 1. File Sync Handler (pkg/handler/FileSyncHandler)
+### 1. Storage Backend Architecture (pkg/storage)
+
+#### Storage Interface
+- Unified `StorageBackend` interface for pluggable storage implementations
+- Methods: `CheckFileExists`, `UploadFile`, `UploadFromReader`, `GetBackendType`, `Close`
+- Storage-agnostic error handling with typed error system
+- Built-in retry logic abstraction
+
+#### S3 Backend Implementation
+- Complete S3-compatible storage implementation
+- Automatic retry with exponential backoff
+- Content type detection and MD5 integrity checking
+- Proper error conversion from S3-specific to generic storage errors
+
+#### Storage Factory
+- Factory pattern for creating storage backend instances
+- Currently supports S3 backend creation
+- Ready for future backend implementations (Azure, GCS, local filesystem, etc.)
+
+### 2. File Sync Handler (pkg/handler/FileSyncHandler)
 
 - Responsible for handling **individual file** synchronization tasks
+- Uses storage backend interface instead of direct S3 client access
 - Supports intelligent file skipping (based on file size comparison)
 - Optional forced overwrite mode (configurable per file via `overwrite`)
-- Cross-platform S3 path handling (Windows backslash conversion)
+- Cross-platform target path handling (Windows backslash conversion)
 - Context cancellation support
 - Optional file deletion after successful sync (configurable per file via `delete_after_sync`)
 - Automatic cleanup of empty directories after file deletion
 - SSH command triggering after each successful file upload
 
-### 2. HTTP Handler (pkg/http/HTTPHandler)
+### 3. HTTP Handler (pkg/http/HTTPHandler)
 
 - Provides REST API endpoint for task submission
 - Validates HTTP request payload (from, to, and optional delete_after_sync and overwrite)
@@ -149,7 +179,7 @@ type AsynqmonConfig struct {
 - Provides file existence check endpoint with Redis caching
 - Integrates Asynqmon web UI for queue monitoring and management (optional)
 
-### 3. Task Publisher (pkg/publisher/Publisher)
+### 4. Task Publisher (pkg/publisher/Publisher)
 
 - Validates local folder/file existence and non-emptiness
 - **Automatic symlink resolution** to real file paths
@@ -157,21 +187,21 @@ type AsynqmonConfig struct {
 - Creates and pushes file-level tasks to Redis queue
 - Supports retry and timeout configuration
 
-### 4. Daemon Service (internal/daemon/DaemonService)
+### 5. Daemon Service (internal/daemon/DaemonService)
 
 - HTTP server management for API endpoints
 - Asynq server management for task processing
 - Graceful shutdown support for both servers
 
-### 5. File Existence Cache (pkg/cache/FileExistenceCache)
+### 6. File Existence Cache (pkg/cache/FileExistenceCache)
 
-- Redis-backed caching for S3 file existence checks
-- Reduces S3 API calls and improves response times
+- Redis-backed caching for storage file existence checks
+- Reduces storage API calls and improves response times
 - Automatic cache updates when files are uploaded
 - Thread-safe concurrent access with in-memory locking
 - Security features: input validation, prefix restrictions
 
-### 6. Logging System (pkg/logger/Logger)
+### 7. Logging System (pkg/logger/Logger)
 
 - Thread-safe structured logging
 - logfmt format output
@@ -199,7 +229,7 @@ type AsynqmonConfig struct {
   - Log level: info
   - Max retry: 3
   - Timeout: 30 minutes
-  - Max concurrent S3 checks: 10
+  - Max concurrent storage checks: 10
   - Allowed prefixes: ["store/"]
   - Asynqmon enabled: true
   - Asynqmon root path: /monitoring
@@ -219,7 +249,8 @@ sync4loong/
 │   ├── http/              # HTTP API handlers
 │   ├── cache/             # File existence cache with Redis
 │   ├── logger/            # Thread-safe logging
-│   └── s3/                # S3 client wrapper
+│   ├── storage/           # Storage backend abstraction and implementations
+│   └── s3/                # S3 client wrapper (used by cache and storage backend)
 ├── internal/
 │   └── daemon/            # Daemon service
 ├── Makefile               # Build scripts
@@ -235,14 +266,14 @@ sync4loong/
 2. HTTP handler validates request payload (from, to, and optional delete_after_sync and overwrite)
 3. Publisher resolves symlinks to real paths using `filepath.EvalSymlinks()`
 4. Publisher scans directories/files and **creates individual file tasks**
-5. For each file: creates `FileSyncSinglePayload` with file path and S3 key
+5. For each file: creates `FileSyncSinglePayload` with file path and target path
 6. Pushes **multiple file-level tasks** to Redis queue
 7. Returns JSON response with success/error status
 
 ### 2. Task Execution Flow
 
 1. Daemon retrieves **individual file tasks** from Redis queue
-2. Each task contains a single file path and target S3 key
+2. Each task contains a single file path and target path
 3. Executes intelligent upload decision for the file:
    - `overwrite` is true → Upload (force overwrite)
    - File doesn't exist → Upload
@@ -255,31 +286,31 @@ sync4loong/
 
 ### 3. File Existence Check Flow
 
-1. HTTP client sends GET request to `/check/{key}` or `/check?key={s3_key}`
-2. System validates S3 key format and checks against allowed prefixes
+1. HTTP client sends GET request to `/check/{key}` or `/check?key={target_path}`
+2. System validates target path format and checks against allowed prefixes
 3. Check Redis cache for existing entry:
    - **Cache Hit**: Return cached result immediately
-   - **Cache Miss**: Proceed to S3 check with in-memory lock to prevent duplicate requests
-4. Query S3 HeadObject API to check file existence
+   - **Cache Miss**: Proceed to storage check with in-memory lock to prevent duplicate requests
+4. Query storage backend API to check file existence
 5. Store result in Redis cache (persistent until manually updated)
 6. Return JSON response with existence status, cache info, and timestamp
 
 ### 4. Cache Update Flow
 
 1. When `FileSyncHandler` successfully uploads a file:
-   - Immediately update cache: `file_exists:{bucket}:{s3_key} = {"exists": true, "size": fileSize, "timestamp": now}`
+   - Immediately update cache: `file_exists:{bucket}:{target_path} = {"exists": true, "size": fileSize, "timestamp": now}`
 2. Cache invalidation strategies:
    - **Manual update**: Cache is updated when files are uploaded or modified
    - **Manual invalidation**: If file deletion is supported in the future
 
-### 5. File Path Mapping
+### 5. Target Path Mapping
 
 ```
 Local: /data/nix-store/bin/bash
-S3:    store/bin/bash
+Target Path: store/bin/bash
 
 Local: /data/nix-store/lib/libc.so.6
-S3:    store/lib/libc.so.6
+Target Path: store/lib/libc.so.6
 ```
 
 ## API Endpoints
@@ -316,7 +347,7 @@ curl -X POST "http://localhost:8080/publish" \
 
 ### File Existence Check
 
-**Endpoint**: `GET /check/{key}` or `GET /check?key={s3_key}`
+**Endpoint**: `GET /check/{key}` or `GET /check?key={target_path}`
 
 **Request**:
 ```bash
@@ -332,7 +363,7 @@ curl -X GET "http://localhost:8080/check?key=store/bin/bash"
   "cached": true,
   "timestamp": "2024-01-01T12:00:00Z",
   "size": 1024,
-  "s3_key": "store/bin/bash"
+  "target_path": "store/bin/bash"
 }
 ```
 
@@ -388,13 +419,28 @@ prometheus_addr = ""
 - **In-memory locking**: Prevent duplicate S3 requests for the same key
 
 **Error Handling**:
-- Redis unavailable: Fallback to direct S3 query (no caching)
-- S3 unavailable: Return error with proper HTTP status code
-- Timeout handling: Configurable timeouts for S3 operations
+- Redis unavailable: Fallback to direct storage query (no caching)
+- Storage unavailable: Return error with proper HTTP status code
+- Timeout handling: Configurable timeouts for storage operations
 
 ## Configuration Example
 
 ```toml
+[storage]
+type = "s3"
+
+[storage.s3]
+endpoint = "https://s3.amazonaws.com"
+region = "us-east-1"
+bucket = "nix4loong"
+access_key = "your-access-key"
+secret_key = "your-secret-key"
+max_retries = 3
+file_upload_retry_count = 2
+file_upload_retry_delay_seconds = 5
+file_upload_timeout_seconds = 3600
+enable_integrity_check = true
+
 [cache]
 max_concurrent_s3_checks = 10
 allowed_prefixes = ["store/", "nix/"]
