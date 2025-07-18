@@ -167,7 +167,7 @@ func (s *SFTPBackend) CheckFileExists(ctx context.Context, key string) (*FileMet
 	stat, err := s.client.Stat(remotePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil // File does not exist
+			return &FileMetadata{Exists: false}, nil
 		}
 		return nil, fmt.Errorf("stat remote file: %w", err)
 	}
