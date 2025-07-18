@@ -34,7 +34,7 @@ func NewDaemonService(config *config.Config) (*DaemonService, error) {
 	}
 
 	server := asynq.NewServer(redisOpt, asynq.Config{
-		Concurrency: 1,
+		Concurrency: config.Daemon.Concurrency,
 		Queues: map[string]int{
 			"default": 6,
 		},
