@@ -73,8 +73,8 @@ type HTTPConfig struct {
 }
 
 type CacheConfig struct {
-	MaxConcurrentS3Checks int      `mapstructure:"max_concurrent_s3_checks" validate:"min=1,max=100"`
-	AllowedPrefixes       []string `mapstructure:"allowed_prefixes" validate:"required,min=1"`
+	MaxConcurrentStorageChecks int      `mapstructure:"max_concurrent_storage_checks" validate:"min=1,max=100"`
+	AllowedPrefixes            []string `mapstructure:"allowed_prefixes" validate:"required,min=1"`
 }
 
 type AsynqmonConfig struct {
@@ -140,7 +140,7 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("http.addr", ":8080")
 
-	v.SetDefault("cache.max_concurrent_s3_checks", 10)
+	v.SetDefault("cache.max_concurrent_storage_checks", 10)
 	v.SetDefault("cache.allowed_prefixes", []string{"store/"})
 
 	v.SetDefault("asynqmon.enabled", true)

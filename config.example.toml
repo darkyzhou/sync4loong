@@ -29,5 +29,5 @@ timeout_minutes = 30
 addr = ":8080"
 
 [cache]
-max_concurrent_s3_checks = 10
+max_concurrent_storage_checks = 10
 allowed_prefixes = ["store/", "nix/"]

@@ -125,7 +125,7 @@ type HTTPConfig struct {
 }
 
 type CacheConfig struct {
-    MaxConcurrentS3Checks int      `mapstructure:"max_concurrent_s3_checks" validate:"min=1,max=100"`
+    MaxConcurrentStorageChecks int      `mapstructure:"max_concurrent_storage_checks" validate:"min=1,max=100"`
     AllowedPrefixes       []string `mapstructure:"allowed_prefixes" validate:"required,min=1"`
 }
 
@@ -442,7 +442,7 @@ file_upload_timeout_seconds = 3600
 enable_integrity_check = true
 
 [cache]
-max_concurrent_s3_checks = 10
+max_concurrent_storage_checks = 10
 allowed_prefixes = ["store/", "nix/"]
 ```
 

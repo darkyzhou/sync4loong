@@ -13,7 +13,6 @@ import (
 	"sync4loong/pkg/handler"
 	httpHandler "sync4loong/pkg/http"
 	"sync4loong/pkg/logger"
-	"sync4loong/pkg/s3"
 	"sync4loong/pkg/storage"
 	"sync4loong/pkg/task"
 )
@@ -93,26 +92,8 @@ func NewDaemonService(config *config.Config) (*DaemonService, error) {
 		return nil, fmt.Errorf("create storage backend: %w", err)
 	}
 
-	var fileCache *cache.FileExistenceCache
-
-	// Create cache only for S3 backend as it's S3-specific
-	if config.Storage.Type == "s3" {
-		s3Client, err := s3.CreateS3Client(&s3.Config{
-			Endpoint:  config.Storage.S3.Endpoint,
-			Region:    config.Storage.S3.Region,
-			Bucket:    config.Storage.S3.Bucket,
-			AccessKey: config.Storage.S3.AccessKey,
-			SecretKey: config.Storage.S3.SecretKey,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("create s3 client for cache: %w", err)
-		}
-
-		fileCache = cache.NewFileExistenceCache(redisClient, s3Client, config)
-	} else {
-		// For SFTP, use nil cache - the cache is S3-specific
-		fileCache = nil
-	}
+	// Create cache for all storage backends using the storage backend interface
+	fileCache := cache.NewFileExistenceCache(redisClient, storageBackend, config)
 
 	fileSyncHandler := handler.NewFileSyncHandler(storageBackend, config, redisClient, asyncClient, fileCache)
 	sshHandler := handler.NewSSHHandler(&config.Daemon, logger.NewDefault(), redisClient, asyncClient)

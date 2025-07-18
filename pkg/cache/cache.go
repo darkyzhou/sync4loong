@@ -9,14 +9,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/sync/semaphore"
 
 	"sync4loong/pkg/config"
 	"sync4loong/pkg/logger"
+	"sync4loong/pkg/storage"
 )
 
 type FileInfo struct {
@@ -34,21 +32,21 @@ type CheckResult struct {
 }
 
 type FileExistenceCache struct {
-	redisClient *redis.Client
-	s3Client    *s3.S3
-	config      *config.Config
-	logger      *logger.Logger
-	locks       sync.Map
-	s3Semaphore *semaphore.Weighted
+	redisClient      *redis.Client
+	storageBackend   storage.StorageBackend
+	config           *config.Config
+	logger           *logger.Logger
+	locks            sync.Map
+	storageSemaphore *semaphore.Weighted
 }
 
-func NewFileExistenceCache(redisClient *redis.Client, s3Client *s3.S3, config *config.Config) *FileExistenceCache {
+func NewFileExistenceCache(redisClient *redis.Client, storageBackend storage.StorageBackend, config *config.Config) *FileExistenceCache {
 	return &FileExistenceCache{
-		redisClient: redisClient,
-		s3Client:    s3Client,
-		config:      config,
-		logger:      logger.NewDefault(),
-		s3Semaphore: semaphore.NewWeighted(int64(config.Cache.MaxConcurrentS3Checks)),
+		redisClient:      redisClient,
+		storageBackend:   storageBackend,
+		config:           config,
+		logger:           logger.NewDefault(),
+		storageSemaphore: semaphore.NewWeighted(int64(config.Cache.MaxConcurrentStorageChecks)),
 	}
 }
 
@@ -92,15 +90,18 @@ func (c *FileExistenceCache) CheckFileExists(ctx context.Context, targetPath str
 
 	defer c.locks.Delete(lockKey)
 
-	if err := c.s3Semaphore.Acquire(ctx, 1); err != nil {
+	if err := c.storageSemaphore.Acquire(ctx, 1); err != nil {
 		return nil, err
 	}
-	defer c.s3Semaphore.Release(1)
+	defer c.storageSemaphore.Release(1)
 
-	exists, size, err := c.checkS3FileExists(ctx, targetPath)
+	metadata, err := c.storageBackend.CheckFileExists(ctx, targetPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check S3: %w", err)
+		return nil, fmt.Errorf("failed to check storage backend: %w", err)
 	}
+
+	exists := metadata.Exists
+	size := metadata.Size
 
 	fileInfo := &FileInfo{
 		Exists:    exists,
@@ -178,7 +179,7 @@ func (c *FileExistenceCache) validateTargetPath(targetPath string) error {
 }
 
 func (c *FileExistenceCache) getCacheKey(targetPath string) string {
-	return fmt.Sprintf("file_exists:%s:%s", c.config.Storage.S3.Bucket, targetPath)
+	return fmt.Sprintf("file_exists:%s:%s", c.storageBackend.GetCacheIdentifier(), targetPath)
 }
 
 func (c *FileExistenceCache) getCachedInfo(ctx context.Context, cacheKey string) (*FileInfo, error) {
@@ -226,7 +227,7 @@ func (c *FileExistenceCache) ClearCache(ctx context.Context, targetPath string) 
 		return nil
 	}
 
-	pattern := fmt.Sprintf("file_exists:%s:*", c.config.Storage.S3.Bucket)
+	pattern := fmt.Sprintf("file_exists:%s:*", c.storageBackend.GetCacheIdentifier())
 	keys, err := c.redisClient.Keys(ctx, pattern).Result()
 	if err != nil {
 		return err
@@ -237,31 +238,4 @@ func (c *FileExistenceCache) ClearCache(ctx context.Context, targetPath string) 
 	}
 
 	return nil
-}
-
-func (c *FileExistenceCache) checkS3FileExists(ctx context.Context, targetPath string) (bool, int64, error) {
-	input := &s3.HeadObjectInput{
-		Bucket: aws.String(c.config.Storage.S3.Bucket),
-		Key:    aws.String(targetPath),
-	}
-
-	result, err := c.s3Client.HeadObjectWithContext(ctx, input)
-	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok {
-			switch aerr.Code() {
-			case "NoSuchKey", "NotFound":
-				return false, 0, nil
-			default:
-				return false, 0, err
-			}
-		}
-		return false, 0, err
-	}
-
-	size := int64(0)
-	if result.ContentLength != nil {
-		size = *result.ContentLength
-	}
-
-	return true, size, nil
 }

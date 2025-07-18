@@ -10,6 +10,7 @@ import (
 
 type StorageBackend interface {
 	GetBackendType() BackendType
+	GetCacheIdentifier() string
 	CheckFileExists(ctx context.Context, key string) (*FileMetadata, error)
 	UploadFile(ctx context.Context, filePath, key string, opts *UploadOptions) error
 	UploadFromReader(ctx context.Context, reader io.Reader, key string, opts *UploadOptions) error
@@ -34,7 +35,8 @@ type UploadOptions struct {
 type BackendType string
 
 const (
-	BackendTypeS3 BackendType = "s3"
+	BackendTypeS3   BackendType = "s3"
+	BackendTypeSFTP BackendType = "sftp"
 )
 
 type StorageError struct {

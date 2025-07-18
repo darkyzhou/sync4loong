@@ -145,7 +145,11 @@ func (s *SFTPBackend) connect() error {
 }
 
 func (s *SFTPBackend) GetBackendType() BackendType {
-	return BackendType("sftp")
+	return BackendTypeSFTP
+}
+
+func (s *SFTPBackend) GetCacheIdentifier() string {
+	return fmt.Sprintf("%s:%d", s.config.Host, s.config.Port)
 }
 
 func (s *SFTPBackend) Close() error {

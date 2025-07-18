@@ -88,7 +88,7 @@ func createTempFile(t *testing.T, content string) (string, func()) {
 	_, err = file.WriteString(content)
 	assert.NoError(t, err)
 	assert.NoError(t, file.Close())
-	return file.Name(), func() { os.Remove(file.Name()) }
+	return file.Name(), func() { _ = os.Remove(file.Name()) }
 }
 
 func TestUploadFileWithResume(t *testing.T) {

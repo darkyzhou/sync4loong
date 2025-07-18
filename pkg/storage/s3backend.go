@@ -175,6 +175,10 @@ func (s *S3Backend) GetBackendType() BackendType {
 	return BackendTypeS3
 }
 
+func (s *S3Backend) GetCacheIdentifier() string {
+	return s.bucket
+}
+
 func (s *S3Backend) Close() error {
 	return nil
 }
