@@ -6,7 +6,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"sync4loong/pkg/logger"
 	"time"
 
 	"github.com/cespare/xxhash/v2"
@@ -94,9 +96,11 @@ func NewSFTPBackend(config *SFTPConfig) (*SFTPBackend, error) {
 		locks:  newStripedLock(1024),
 	}
 
+	logger.Info("connecting to SFTP server...", nil)
 	if err := backend.connect(); err != nil {
 		return nil, fmt.Errorf("failed to connect: %w", err)
 	}
+	logger.Info("connected to SFTP server", nil)
 
 	return backend, nil
 }
@@ -112,7 +116,8 @@ func (s *SFTPBackend) connect() error {
 	// Set authentication method
 	if s.config.PrivateKey != "" {
 		// Use private key authentication
-		key, err := ssh.ParsePrivateKey([]byte(s.config.PrivateKey))
+		trimmedKey := strings.TrimSpace(s.config.PrivateKey)
+		key, err := ssh.ParsePrivateKey([]byte(trimmedKey))
 		if err != nil {
 			return fmt.Errorf("parse private key: %w", err)
 		}
