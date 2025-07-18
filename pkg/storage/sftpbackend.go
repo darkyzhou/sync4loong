@@ -84,7 +84,6 @@ type SFTPConfig struct {
 	Username          string `mapstructure:"username" validate:"required"`
 	Password          string `mapstructure:"password"`
 	PrivateKey        string `mapstructure:"private_key"`
-	RootPath          string `mapstructure:"root_path" validate:"required"`
 	ConnectionTimeout int    `mapstructure:"connection_timeout" validate:"min=1,max=300"`
 	EnableResume      bool   `mapstructure:"enable_resume"`
 }
@@ -160,8 +159,7 @@ func (s *SFTPBackend) Close() error {
 }
 
 func (s *SFTPBackend) CheckFileExists(ctx context.Context, key string) (*FileMetadata, error) {
-	remotePath := filepath.Join(s.config.RootPath, key)
-
+	remotePath := filepath.Clean(key)
 	stat, err := s.client.Stat(remotePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -236,10 +234,10 @@ func (s *SFTPBackend) uploadFileWithResume(ctx context.Context, filePath, key st
 }
 
 func (s *SFTPBackend) UploadFromReader(ctx context.Context, reader io.Reader, key string, opts *UploadOptions) error {
-	s.lockFile(key)
-	defer s.unlockFile(key)
+	remotePath := filepath.Clean(key)
 
-	remotePath := filepath.Join(s.config.RootPath, key)
+	s.lockFile(remotePath)
+	defer s.unlockFile(remotePath)
 
 	// Ensure remote directory exists
 	if err := s.client.MkdirAll(filepath.Dir(remotePath)); err != nil {
@@ -285,7 +283,7 @@ func (s *SFTPBackend) getLocalFileSize(filePath string) (int64, error) {
 }
 
 func (s *SFTPBackend) getRemoteFileSize(remoteKey string) (int64, bool, error) {
-	remotePath := filepath.Join(s.config.RootPath, remoteKey)
+	remotePath := filepath.Clean(remoteKey)
 
 	stat, err := s.client.Stat(remotePath)
 	if err != nil {
@@ -310,7 +308,7 @@ func (s *SFTPBackend) generateTempKey(key, hash string) string {
 }
 
 func (s *SFTPBackend) uploadWithResume(ctx context.Context, filePath, tempKey string, startOffset int64) error {
-	remotePath := filepath.Join(s.config.RootPath, tempKey)
+	remotePath := filepath.Clean(tempKey)
 
 	// Ensure remote directory exists
 	if err := s.client.MkdirAll(filepath.Dir(remotePath)); err != nil {
@@ -354,8 +352,8 @@ func (s *SFTPBackend) uploadWithResume(ctx context.Context, filePath, tempKey st
 }
 
 func (s *SFTPBackend) renameFile(tempKey, finalKey string) error {
-	tempPath := filepath.Join(s.config.RootPath, tempKey)
-	finalPath := filepath.Join(s.config.RootPath, finalKey)
+	tempPath := filepath.Clean(tempKey)
+	finalPath := filepath.Clean(finalKey)
 
 	// Ensure final directory exists
 	if err := s.client.MkdirAll(filepath.Dir(finalPath)); err != nil {

@@ -51,7 +51,6 @@ type SFTPConfig struct {
 	Username          string `mapstructure:"username" validate:"required"`
 	Password          string `mapstructure:"password"`
 	PrivateKey        string `mapstructure:"private_key"`
-	RootPath          string `mapstructure:"root_path" validate:"required"`
 	ConnectionTimeout int    `mapstructure:"connection_timeout" validate:"min=1,max=300"`
 	EnableResume      bool   `mapstructure:"enable_resume"`
 }
@@ -105,8 +104,7 @@ func LoadFromFile(filename string) (*Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	validate := validator.New(validator.WithRequiredStructEnabled())
-	if err := validate.Struct(&config); err != nil {
+	if err := validateConfig(&config); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
 
@@ -149,4 +147,38 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("asynqmon.root_path", "/monitoring")
 	v.SetDefault("asynqmon.read_only_mode", false)
 	v.SetDefault("asynqmon.prometheus_addr", "")
+}
+
+func validateConfig(config *Config) error {
+	validate := validator.New(validator.WithRequiredStructEnabled())
+
+	// Validate the main config structure excluding storage-specific fields
+	if err := validate.StructExcept(config, "Storage.S3", "Storage.SFTP"); err != nil {
+		return err
+	}
+
+	// Validate storage type field
+	if err := validate.Var(config.Storage.Type, "required,oneof=s3 sftp"); err != nil {
+		return err
+	}
+
+	// Conditionally validate storage configuration based on type
+	switch config.Storage.Type {
+	case "s3":
+		if config.Storage.S3 == nil {
+			return fmt.Errorf("s3 configuration is required when storage type is 's3'")
+		}
+		if err := validate.Struct(config.Storage.S3); err != nil {
+			return err
+		}
+	case "sftp":
+		if config.Storage.SFTP == nil {
+			return fmt.Errorf("sftp configuration is required when storage type is 'sftp'")
+		}
+		if err := validate.Struct(config.Storage.SFTP); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

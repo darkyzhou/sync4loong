@@ -82,7 +82,6 @@ func NewDaemonService(config *config.Config) (*DaemonService, error) {
 			Username:          config.Storage.SFTP.Username,
 			Password:          config.Storage.SFTP.Password,
 			PrivateKey:        config.Storage.SFTP.PrivateKey,
-			RootPath:          config.Storage.SFTP.RootPath,
 			ConnectionTimeout: config.Storage.SFTP.ConnectionTimeout,
 			EnableResume:      config.Storage.SFTP.EnableResume,
 		})

@@ -92,14 +92,13 @@ func createTempFile(t *testing.T, content string) (string, func()) {
 }
 
 func TestUploadFileWithResume(t *testing.T) {
-	rootPath := "/remote/path"
 	key := "test/file.txt"
-	finalPath := filepath.Join(rootPath, key)
+	finalPath := key
 	content := "hello world, this is a test"
 	fileSize := int64(len(content))
 	hash, _ := calculateTestFileHash(content)
 	tempKey := fmt.Sprintf(".%s.%s", filepath.Base(key), hash)
-	tempPath := filepath.Join(rootPath, filepath.Dir(key), tempKey)
+	tempPath := filepath.Join(filepath.Dir(key), tempKey)
 
 	localFile, cleanup := createTempFile(t, content)
 	defer cleanup()
@@ -169,7 +168,6 @@ func TestUploadFileWithResume(t *testing.T) {
 			backend := &SFTPBackend{
 				client: mockClient,
 				config: &SFTPConfig{
-					RootPath:     rootPath,
 					EnableResume: tt.enableResume,
 				},
 				locks: newStripedLock(10),
