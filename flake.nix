@@ -35,7 +35,7 @@
           sync4loong = pkgs.callPackage ./package.nix {
             inherit version;
             src = self;
-            vendorHash = "sha256-HxsSHu3QZQ6LRE2OTCsKXYzuX+ndv/eQcaIAc9gGmUE=";
+            vendorHash = "sha256-tf/PxSH+U+7LrQEyEEoLbXFllfApggxL8/4/+smyoPE=";
           };
         };
 
