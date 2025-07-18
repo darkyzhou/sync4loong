@@ -51,34 +51,69 @@ func NewDaemonService(config *config.Config) (*DaemonService, error) {
 
 	logger.Info("creating storage backend", map[string]any{"type": config.Storage.Type})
 	storageFactory := storage.NewStorageFactory()
-	storageBackend, err := storageFactory.CreateS3Backend(&storage.S3Config{
-		Endpoint:                    config.Storage.S3.Endpoint,
-		Region:                      config.Storage.S3.Region,
-		Bucket:                      config.Storage.S3.Bucket,
-		AccessKey:                   config.Storage.S3.AccessKey,
-		SecretKey:                   config.Storage.S3.SecretKey,
-		MaxRetries:                  config.Storage.S3.MaxRetries,
-		FileUploadRetryCount:        config.Storage.S3.FileUploadRetryCount,
-		FileUploadRetryDelaySeconds: config.Storage.S3.FileUploadRetryDelaySeconds,
-		FileUploadTimeoutSeconds:    config.Storage.S3.FileUploadTimeoutSeconds,
-		EnableIntegrityCheck:        config.Storage.S3.EnableIntegrityCheck,
-	})
+
+	var storageBackend storage.StorageBackend
+	var err error
+
+	switch config.Storage.Type {
+	case "s3":
+		if config.Storage.S3 == nil {
+			return nil, fmt.Errorf("S3 configuration is required when storage.type is 's3'")
+		}
+		storageBackend, err = storageFactory.CreateS3Backend(&storage.S3Config{
+			Endpoint:                    config.Storage.S3.Endpoint,
+			Region:                      config.Storage.S3.Region,
+			Bucket:                      config.Storage.S3.Bucket,
+			AccessKey:                   config.Storage.S3.AccessKey,
+			SecretKey:                   config.Storage.S3.SecretKey,
+			MaxRetries:                  config.Storage.S3.MaxRetries,
+			FileUploadRetryCount:        config.Storage.S3.FileUploadRetryCount,
+			FileUploadRetryDelaySeconds: config.Storage.S3.FileUploadRetryDelaySeconds,
+			FileUploadTimeoutSeconds:    config.Storage.S3.FileUploadTimeoutSeconds,
+			EnableIntegrityCheck:        config.Storage.S3.EnableIntegrityCheck,
+		})
+	case "sftp":
+		if config.Storage.SFTP == nil {
+			return nil, fmt.Errorf("SFTP configuration is required when storage.type is 'sftp'")
+		}
+		storageBackend, err = storageFactory.CreateSFTPBackend(&storage.SFTPConfig{
+			Host:              config.Storage.SFTP.Host,
+			Port:              config.Storage.SFTP.Port,
+			Username:          config.Storage.SFTP.Username,
+			Password:          config.Storage.SFTP.Password,
+			PrivateKey:        config.Storage.SFTP.PrivateKey,
+			RootPath:          config.Storage.SFTP.RootPath,
+			ConnectionTimeout: config.Storage.SFTP.ConnectionTimeout,
+			EnableResume:      config.Storage.SFTP.EnableResume,
+		})
+	default:
+		return nil, fmt.Errorf("unsupported storage type: %s", config.Storage.Type)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("create storage backend: %w", err)
 	}
 
-	s3Client, err := s3.CreateS3Client(&s3.Config{
-		Endpoint:  config.Storage.S3.Endpoint,
-		Region:    config.Storage.S3.Region,
-		Bucket:    config.Storage.S3.Bucket,
-		AccessKey: config.Storage.S3.AccessKey,
-		SecretKey: config.Storage.S3.SecretKey,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create s3 client for cache: %w", err)
-	}
+	var fileCache *cache.FileExistenceCache
 
-	fileCache := cache.NewFileExistenceCache(redisClient, s3Client, config)
+	// Create cache only for S3 backend as it's S3-specific
+	if config.Storage.Type == "s3" {
+		s3Client, err := s3.CreateS3Client(&s3.Config{
+			Endpoint:  config.Storage.S3.Endpoint,
+			Region:    config.Storage.S3.Region,
+			Bucket:    config.Storage.S3.Bucket,
+			AccessKey: config.Storage.S3.AccessKey,
+			SecretKey: config.Storage.S3.SecretKey,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create s3 client for cache: %w", err)
+		}
+
+		fileCache = cache.NewFileExistenceCache(redisClient, s3Client, config)
+	} else {
+		// For SFTP, use nil cache - the cache is S3-specific
+		fileCache = nil
+	}
 
 	fileSyncHandler := handler.NewFileSyncHandler(storageBackend, config, redisClient, asyncClient, fileCache)
 	sshHandler := handler.NewSSHHandler(&config.Daemon, logger.NewDefault(), redisClient, asyncClient)

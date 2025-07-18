@@ -21,7 +21,6 @@ type FileMetadata struct {
 	Size         int64     `json:"size"`
 	LastModified time.Time `json:"last_modified"`
 	ContentType  string    `json:"content_type,omitempty"`
-	ETag         string    `json:"etag,omitempty"`
 }
 
 type UploadOptions struct {

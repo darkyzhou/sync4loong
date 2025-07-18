@@ -30,3 +30,11 @@ func (f *StorageFactory) CreateS3Backend(config *S3Config) (StorageBackend, erro
 
 	return NewS3Backend(s3Client, config), nil
 }
+
+func (f *StorageFactory) CreateSFTPBackend(config *SFTPConfig) (StorageBackend, error) {
+	if config == nil {
+		return nil, fmt.Errorf("SFTP configuration is required")
+	}
+
+	return NewSFTPBackend(config)
+}

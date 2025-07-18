@@ -24,8 +24,9 @@ type RedisConfig struct {
 }
 
 type StorageConfig struct {
-	Type string    `mapstructure:"type" validate:"required,oneof=s3"`
-	S3   *S3Config `mapstructure:"s3"`
+	Type string      `mapstructure:"type" validate:"required,oneof=s3 sftp"`
+	S3   *S3Config   `mapstructure:"s3"`
+	SFTP *SFTPConfig `mapstructure:"sftp"`
 }
 
 type S3Config struct {
@@ -42,6 +43,17 @@ type S3Config struct {
 	FileUploadTimeoutSeconds    int `mapstructure:"file_upload_timeout_seconds" validate:"min=1,max=100000"`
 
 	EnableIntegrityCheck bool `mapstructure:"enable_integrity_check"`
+}
+
+type SFTPConfig struct {
+	Host              string `mapstructure:"host" validate:"required"`
+	Port              int    `mapstructure:"port" validate:"required,min=1,max=65535"`
+	Username          string `mapstructure:"username" validate:"required"`
+	Password          string `mapstructure:"password"`
+	PrivateKey        string `mapstructure:"private_key"`
+	RootPath          string `mapstructure:"root_path" validate:"required"`
+	ConnectionTimeout int    `mapstructure:"connection_timeout" validate:"min=1,max=300"`
+	EnableResume      bool   `mapstructure:"enable_resume"`
 }
 
 type DaemonConfig struct {
@@ -113,6 +125,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("storage.s3.file_upload_retry_delay_seconds", 2)
 	v.SetDefault("storage.s3.file_upload_timeout_seconds", 4*60*60) // 4 hours
 	v.SetDefault("storage.s3.enable_integrity_check", true)
+
+	// SFTP defaults
+	v.SetDefault("storage.sftp.port", 22)
+	v.SetDefault("storage.sftp.connection_timeout", 30)
+	v.SetDefault("storage.sftp.enable_resume", true)
 
 	v.SetDefault("daemon.log_level", "info")
 	v.SetDefault("daemon.ssh_command", "")

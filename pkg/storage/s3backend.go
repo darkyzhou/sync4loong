@@ -79,9 +79,6 @@ func (s *S3Backend) CheckFileExists(ctx context.Context, key string) (*FileMetad
 	if headResp.ContentType != nil {
 		metadata.ContentType = *headResp.ContentType
 	}
-	if headResp.ETag != nil {
-		metadata.ETag = *headResp.ETag
-	}
 
 	return metadata, nil
 }
