@@ -58,11 +58,6 @@ func (h *FileSyncHandler) HandleSingleFile(ctx context.Context, asynqTask *asynq
 		return fmt.Errorf("upload single file %s -> %s: %w", payload.FilePath, payload.TargetPath, err)
 	}
 
-	h.logger.Info("single file sync completed", map[string]any{
-		"file_path":   payload.FilePath,
-		"target_path": payload.TargetPath,
-	})
-
 	if err := h.sshDebouncer.TriggerSSH(ctx); err != nil {
 		h.logger.Error("failed to trigger SSH debouncer", err, map[string]any{
 			"file_path":   payload.FilePath,
