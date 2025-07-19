@@ -135,8 +135,14 @@ func (p *Publisher) PublishFileSyncTaskAsFiles(items []SyncItem) error {
 			if stat.IsDir() {
 				targetPath = p.generateTargetPath(item.To, file, basePath)
 			} else {
-				// For single file, use target path as is
-				targetPath = item.To
+				// For single file, check if target path ends with / (directory)
+				if strings.HasSuffix(item.To, "/") {
+					// Target is a directory, append filename
+					targetPath = item.To + filepath.Base(file)
+				} else {
+					// Target is a file path, use as is
+					targetPath = item.To
+				}
 			}
 
 			payload := task.FileSyncSinglePayload{

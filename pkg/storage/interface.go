@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"time"
 )
 
@@ -13,7 +12,6 @@ type StorageBackend interface {
 	GetCacheIdentifier() string
 	CheckFileExists(ctx context.Context, key string) (*FileMetadata, error)
 	UploadFile(ctx context.Context, filePath, key string, opts *UploadOptions) error
-	UploadFromReader(ctx context.Context, reader io.Reader, key string, opts *UploadOptions) error
 	Close() error
 }
 
@@ -25,11 +23,8 @@ type FileMetadata struct {
 }
 
 type UploadOptions struct {
-	ContentType          string            `json:"content_type,omitempty"`
-	ContentMD5           string            `json:"content_md5,omitempty"`
-	Metadata             map[string]string `json:"metadata,omitempty"`
-	StorageClass         string            `json:"storage_class,omitempty"`
-	EnableIntegrityCheck bool              `json:"enable_integrity_check"`
+	Overwrite   bool   `json:"overwrite,omitempty"`
+	ContentType string `json:"content_type,omitempty"`
 }
 
 type BackendType string

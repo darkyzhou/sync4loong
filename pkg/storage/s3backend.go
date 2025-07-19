@@ -2,8 +2,6 @@ package storage
 
 import (
 	"context"
-	"crypto/md5"
-	"encoding/base64"
 	"errors"
 	"io"
 	"os"
@@ -96,30 +94,10 @@ func (s *S3Backend) UploadFile(ctx context.Context, filePath, key string, opts *
 		_ = file.Close()
 	}()
 
-	if opts != nil && opts.EnableIntegrityCheck && opts.ContentMD5 == "" {
-		md5Hash, err := s.calculateFileMD5(file)
-		if err != nil {
-			return &StorageError{
-				Type:    ErrorTypeInternal,
-				Message: "failed to calculate file MD5",
-				Cause:   err,
-			}
-		}
-		opts.ContentMD5 = md5Hash
-
-		if _, err := file.Seek(0, 0); err != nil {
-			return &StorageError{
-				Type:    ErrorTypeInternal,
-				Message: "failed to reset file pointer",
-				Cause:   err,
-			}
-		}
-	}
-
-	return s.UploadFromReader(ctx, file, key, opts)
+	return s.uploadFromReader(ctx, file, key, opts)
 }
 
-func (s *S3Backend) UploadFromReader(ctx context.Context, reader io.Reader, key string, opts *UploadOptions) error {
+func (s *S3Backend) uploadFromReader(ctx context.Context, reader io.Reader, key string, opts *UploadOptions) error {
 	if opts == nil {
 		opts = &UploadOptions{}
 	}
@@ -152,16 +130,6 @@ func (s *S3Backend) UploadFromReader(ctx context.Context, reader io.Reader, key 
 	if opts.ContentType != "" {
 		putInput.ContentType = aws.String(opts.ContentType)
 	}
-	if opts.ContentMD5 != "" {
-		putInput.ContentMD5 = aws.String(opts.ContentMD5)
-	}
-	if opts.StorageClass != "" {
-		putInput.StorageClass = aws.String(opts.StorageClass)
-	}
-
-	if len(opts.Metadata) > 0 {
-		putInput.Metadata = aws.StringMap(opts.Metadata)
-	}
 
 	_, err := s.client.PutObjectWithContext(uploadCtx, putInput)
 	if err != nil {
@@ -181,14 +149,6 @@ func (s *S3Backend) GetCacheIdentifier() string {
 
 func (s *S3Backend) Close() error {
 	return nil
-}
-
-func (s *S3Backend) calculateFileMD5(file *os.File) (string, error) {
-	hash := md5.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return "", err
-	}
-	return base64.StdEncoding.EncodeToString(hash.Sum(nil)), nil
 }
 
 func (s *S3Backend) convertS3Error(err error) error {

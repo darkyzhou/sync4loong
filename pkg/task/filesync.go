@@ -5,13 +5,6 @@ const (
 	TaskTypeSSHCommand     = "ssh_command"
 )
 
-type SyncItem struct {
-	From            string `json:"from"`
-	To              string `json:"to"`
-	DeleteAfterSync bool   `json:"delete_after_sync,omitempty"`
-	Overwrite       bool   `json:"overwrite,omitempty"`
-}
-
 type FileSyncSinglePayload struct {
 	FilePath        string `json:"file_path"`
 	TargetPath      string `json:"target_path"`

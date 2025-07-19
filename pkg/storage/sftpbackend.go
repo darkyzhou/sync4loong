@@ -13,35 +13,6 @@ import (
 	"github.com/pkg/sftp"
 )
 
-// sftpClientInterface defines the methods we use from the sftp.Client.
-// This makes the SFTPBackend testable.
-type sftpClientInterface interface {
-	Stat(p string) (os.FileInfo, error)
-	MkdirAll(path string) error
-	Create(path string) (io.WriteCloser, error)
-	OpenFile(path string, f int) (io.WriteCloser, error)
-	Rename(oldname, newname string) error
-	Close() error
-}
-
-// sshClientInterface defines the methods we use from the ssh.Client.
-type sshClientInterface interface {
-	Close() error
-}
-
-// sftpClientAdapter wraps *sftp.Client to satisfy sftpClientInterface.
-type sftpClientAdapter struct {
-	*sftp.Client
-}
-
-func (a *sftpClientAdapter) Create(path string) (io.WriteCloser, error) {
-	return a.Client.Create(path)
-}
-
-func (a *sftpClientAdapter) OpenFile(path string, f int) (io.WriteCloser, error) {
-	return a.Client.OpenFile(path, f)
-}
-
 // stripedLock provides a set of locks for concurrent access to different keys.
 // This avoids holding a global lock or having a map of locks that grows indefinitely.
 type stripedLock struct {
@@ -100,12 +71,12 @@ func NewSFTPBackend(config *SFTPConfig) (*SFTPBackend, error) {
 }
 
 // getClient returns the SFTP client from the manager, creating a connection if necessary
-func (s *SFTPBackend) getClient() (sftpClientInterface, error) {
+func (s *SFTPBackend) getClient() (*sftp.Client, error) {
 	conn, err := s.manager.GetConnection()
 	if err != nil {
 		return nil, fmt.Errorf("get SFTP connection: %w", err)
 	}
-	return &sftpClientAdapter{conn.GetClient()}, nil
+	return conn.GetClient(), nil
 }
 
 func (s *SFTPBackend) GetBackendType() BackendType {
@@ -139,98 +110,69 @@ func (s *SFTPBackend) CheckFileExists(ctx context.Context, key string) (*FileMet
 	}
 
 	return &FileMetadata{
+		Exists:       true,
 		Size:         stat.Size(),
 		LastModified: stat.ModTime(),
 	}, nil
 }
 
 func (s *SFTPBackend) UploadFile(ctx context.Context, filePath, key string, opts *UploadOptions) error {
-	return s.uploadFileWithResume(ctx, filePath, key, opts)
-}
-
-// uploadFileWithResume handles file upload with resumable support
-func (s *SFTPBackend) uploadFileWithResume(ctx context.Context, filePath, key string, opts *UploadOptions) error {
-	// 1. Acquire file lock
 	s.lockFile(key)
 	defer s.unlockFile(key)
 
-	// 2. Calculate file hash
-	fileHash, err := s.calculateFileHash(filePath)
-	if err != nil {
-		return fmt.Errorf("calculate file hash: %w", err)
+	if opts.Overwrite {
+		metadata, err := s.CheckFileExists(ctx, key)
+		if err != nil {
+			return fmt.Errorf("check file exists: %w", err)
+		}
+
+		if metadata.Exists {
+			client, err := s.getClient()
+			if err != nil {
+				return fmt.Errorf("get client: %w", err)
+			}
+			if err := client.Remove(key); err != nil {
+				return fmt.Errorf("remove file: %w", err)
+			}
+
+			logger.Info("file exists, removing due to overwrite", map[string]any{"key": key})
+		}
 	}
 
-	// 3. Generate temporary file name
-	tempKey := s.generateTempKey(key, fileHash)
-
-	// 4. Get local file size
 	localSize, err := s.getLocalFileSize(filePath)
 	if err != nil {
 		return fmt.Errorf("get local file size: %w", err)
 	}
 
-	// 5. Get remote file size
+	fileHash, err := s.calculateFileHash(filePath)
+	if err != nil {
+		return fmt.Errorf("calculate file hash: %w", err)
+	}
+	tempKey := s.generateTempKey(key, fileHash)
 	remoteSize, exists, err := s.getRemoteFileSize(tempKey)
 	if err != nil {
 		return fmt.Errorf("get remote file size: %w", err)
 	}
 
-	// 6. Determine if resumable upload is needed
 	startOffset := int64(0)
 	skipUpload := false
 	if s.config.EnableResume && exists {
 		if remoteSize == localSize {
-			// Temporary file is already complete, skip upload
 			skipUpload = true
 		} else if remoteSize > 0 && remoteSize < localSize {
-			// Resume upload from offset
 			startOffset = remoteSize
 		}
 	}
 
-	// 7. Execute upload if not skipped
 	if !skipUpload {
 		if err := s.uploadWithResume(ctx, filePath, tempKey, startOffset); err != nil {
 			return fmt.Errorf("upload with resume: %w", err)
 		}
 	}
 
-	// 8. Atomic rename
 	if err := s.renameFile(tempKey, key); err != nil {
 		return fmt.Errorf("rename file: %w", err)
 	}
-
-	return nil
-}
-
-func (s *SFTPBackend) UploadFromReader(ctx context.Context, reader io.Reader, key string, opts *UploadOptions) error {
-	client, err := s.getClient()
-	if err != nil {
-		return fmt.Errorf("get client: %w", err)
-	}
-
-	remotePath := filepath.Clean(key)
-
-	s.lockFile(remotePath)
-	defer s.unlockFile(remotePath)
-
-	// Ensure remote directory exists
-	if err := client.MkdirAll(filepath.Dir(remotePath)); err != nil {
-		return fmt.Errorf("create remote directory: %w", err)
-	}
-
-	// Create remote file
-	remoteFile, err := client.Create(remotePath)
-	if err != nil {
-		return fmt.Errorf("create remote file: %w", err)
-	}
-	defer func() { _ = remoteFile.Close() }()
-
-	// Copy data from reader to remote file
-	if _, err := copyWithContext(ctx, remoteFile, reader); err != nil {
-		return fmt.Errorf("copy data: %w", err)
-	}
-
 	return nil
 }
 

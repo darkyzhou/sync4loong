@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"net"
 	"sync"
 	"sync/atomic"
 	"sync4loong/pkg/logger"
@@ -124,19 +125,28 @@ func (m *BasicSFTPManager) connectSSH() (*ssh.Client, *sftp.Client, error) {
 		return nil, nil, err
 	}
 
-	addr := fmt.Sprintf("%s:%d", m.config.Host, m.config.Port)
-	conn, err := ssh.Dial("tcp", addr, sshConfig)
+	logger.Info("dialing ssh", map[string]any{"host": m.config.Host, "port": m.config.Port})
+
+	d := net.Dialer{Timeout: time.Duration(m.config.ConnectionTimeout) * time.Second}
+	addr := net.JoinHostPort(m.config.Host, fmt.Sprintf("%d", m.config.Port))
+	conn, err := d.Dial("tcp", addr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to dial ssh: %w", err)
 	}
-
-	sftpConn, err := sftp.NewClient(conn)
+	c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshConfig)
 	if err != nil {
-		conn.Close()
-		return nil, nil, fmt.Errorf("failed to initialize sftp subsystem: %w", err)
+		return nil, nil, fmt.Errorf("failed to establish ssh connection: %w", err)
 	}
 
-	return conn, sftpConn, nil
+	logger.Info("ssh connection established", map[string]any{"host": m.config.Host, "port": m.config.Port})
+
+	sshClient := ssh.NewClient(c, chans, reqs)
+	sftpClient, err := sftp.NewClient(sshClient)
+	if err != nil {
+		conn.Close()
+		return nil, nil, fmt.Errorf("failed to initialize sftp client: %w", err)
+	}
+	return sshClient, sftpClient, nil
 }
 
 // handleReconnects manages automatic reconnection for a connection

@@ -86,7 +86,7 @@ func (h *FileSyncHandler) uploadSingleFileWithOptions(ctx context.Context, fileP
 			"target_path": targetPath,
 		})
 	} else {
-		if err := h.uploadFile(ctx, filePath, targetPath); err != nil {
+		if err := h.uploadFile(ctx, filePath, targetPath, overwrite); err != nil {
 			return fmt.Errorf("upload file: %w", err)
 		}
 	}
@@ -158,7 +158,7 @@ func (h *FileSyncHandler) getContentType(filePath string) string {
 	return contentType
 }
 
-func (h *FileSyncHandler) uploadFile(ctx context.Context, filePath, targetPath string) error {
+func (h *FileSyncHandler) uploadFile(ctx context.Context, filePath, targetPath string, overwrite bool) error {
 	var lastErr error
 	retryCount := h.config.Storage.S3.FileUploadRetryCount
 	retryDelay := time.Duration(h.config.Storage.S3.FileUploadRetryDelaySeconds) * time.Second
@@ -181,7 +181,7 @@ func (h *FileSyncHandler) uploadFile(ctx context.Context, filePath, targetPath s
 			retryDelay *= 2
 		}
 
-		err := h.uploadFileOnce(ctx, filePath, targetPath)
+		err := h.uploadFileOnce(ctx, filePath, targetPath, overwrite)
 		if err == nil {
 			h.logger.Info("uploaded file successfully", map[string]any{
 				"file_path":   filePath,
@@ -217,7 +217,7 @@ func (h *FileSyncHandler) uploadFile(ctx context.Context, filePath, targetPath s
 	return fmt.Errorf("upload failed after %d attempts: %w", retryCount+1, lastErr)
 }
 
-func (h *FileSyncHandler) uploadFileOnce(ctx context.Context, filePath, targetPath string) error {
+func (h *FileSyncHandler) uploadFileOnce(ctx context.Context, filePath, targetPath string, overwrite bool) error {
 	h.logger.Info("starting file upload", map[string]any{
 		"file_path":   filePath,
 		"target_path": targetPath,
@@ -225,8 +225,8 @@ func (h *FileSyncHandler) uploadFileOnce(ctx context.Context, filePath, targetPa
 
 	contentType := h.getContentType(filePath)
 	opts := &storage.UploadOptions{
-		ContentType:          contentType,
-		EnableIntegrityCheck: h.config.Storage.S3.EnableIntegrityCheck,
+		Overwrite:   overwrite,
+		ContentType: contentType,
 	}
 
 	if err := h.storageBackend.UploadFile(ctx, filePath, targetPath, opts); err != nil {
