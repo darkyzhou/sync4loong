@@ -74,18 +74,10 @@ func (d *Debouncer) TriggerSSH(ctx context.Context) error {
 		if _, err := d.asyncClient.Enqueue(sshTask, asynq.ProcessIn(delay)); err != nil {
 			return fmt.Errorf("failed to enqueue SSH task: %w", err)
 		}
-
-		d.logger.Info("SSH debounce task created", map[string]any{
-			"delay_minutes": d.config.SSHDebounceMinutes,
-		})
 	} else {
 		if err := d.saveDebounceState(ctx, state); err != nil {
 			return fmt.Errorf("failed to save debounce state: %w", err)
 		}
-
-		d.logger.Info("SSH debounce request updated", map[string]any{
-			"pending_task_exists": true,
-		})
 	}
 
 	return nil

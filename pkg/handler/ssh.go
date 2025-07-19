@@ -89,7 +89,7 @@ func (h *SSHHandler) ProcessTask(ctx context.Context, t *asynq.Task) error {
 			errorType = "command_error"
 		}
 
-		h.logger.Error("SSH command failed", err, map[string]any{
+		h.logger.Error("ssh command failed", err, map[string]any{
 			"command":         payload.Command,
 			"output":          string(output),
 			"duration":        duration,
@@ -98,13 +98,13 @@ func (h *SSHHandler) ProcessTask(ctx context.Context, t *asynq.Task) error {
 		})
 
 		if markErr := h.debouncer.MarkTaskCompleted(ctx); markErr != nil {
-			h.logger.Error("Failed to mark SSH task as completed", markErr, nil)
+			h.logger.Error("failed to mark ssh task as completed", markErr, nil)
 		}
 
-		return fmt.Errorf("SSH command execution failed: %w", err)
+		return fmt.Errorf("ssh command execution failed: %w", err)
 	}
 
-	h.logger.Info("SSH command executed successfully", map[string]any{
+	h.logger.Info("ssh command executed successfully", map[string]any{
 		"command":         payload.Command,
 		"output":          string(output),
 		"duration":        duration,
@@ -112,7 +112,7 @@ func (h *SSHHandler) ProcessTask(ctx context.Context, t *asynq.Task) error {
 	})
 
 	if err := h.debouncer.MarkTaskCompleted(ctx); err != nil {
-		h.logger.Error("Failed to mark SSH task as completed", err, nil)
+		h.logger.Error("failed to mark ssh task as completed", err, nil)
 		return fmt.Errorf("failed to mark SSH task as completed: %w", err)
 	}
 
