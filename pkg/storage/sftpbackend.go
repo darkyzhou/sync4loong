@@ -6,14 +6,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"sync4loong/pkg/logger"
-	"time"
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
 )
 
 // sftpClientInterface defines the methods we use from the sftp.Client.
@@ -74,10 +71,9 @@ func (sl *stripedLock) Unlock(key string) {
 }
 
 type SFTPBackend struct {
-	client    sftpClientInterface
-	sshClient sshClientInterface
-	config    *SFTPConfig
-	locks     *stripedLock
+	manager SFTPManager
+	config  *SFTPConfig
+	locks   *stripedLock
 }
 
 type SFTPConfig struct {
@@ -91,62 +87,25 @@ type SFTPConfig struct {
 }
 
 func NewSFTPBackend(config *SFTPConfig) (*SFTPBackend, error) {
+	manager := NewBasicSFTPManager(config)
+
 	backend := &SFTPBackend{
-		config: config,
-		locks:  newStripedLock(1024),
+		manager: manager,
+		config:  config,
+		locks:   newStripedLock(1024),
 	}
 
-	logger.Info("connecting to SFTP server...", nil)
-	if err := backend.connect(); err != nil {
-		return nil, fmt.Errorf("failed to connect: %w", err)
-	}
-	logger.Info("connected to SFTP server", nil)
-
+	logger.Info("SFTP backend initialized with connection manager", nil)
 	return backend, nil
 }
 
-func (s *SFTPBackend) connect() error {
-	// Create SSH client configuration
-	sshConfig := &ssh.ClientConfig{
-		User:            s.config.Username,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         time.Duration(s.config.ConnectionTimeout) * time.Second,
-	}
-
-	// Set authentication method
-	if s.config.PrivateKey != "" {
-		// Use private key authentication
-		trimmedKey := strings.TrimSpace(s.config.PrivateKey)
-		key, err := ssh.ParsePrivateKey([]byte(trimmedKey))
-		if err != nil {
-			return fmt.Errorf("parse private key: %w", err)
-		}
-		sshConfig.Auth = []ssh.AuthMethod{ssh.PublicKeys(key)}
-	} else if s.config.Password != "" {
-		// Use password authentication
-		sshConfig.Auth = []ssh.AuthMethod{ssh.Password(s.config.Password)}
-	} else {
-		return fmt.Errorf("either password or private key must be provided")
-	}
-
-	// Connect to SSH server
-	addr := fmt.Sprintf("%s:%d", s.config.Host, s.config.Port)
-	sshClient, err := ssh.Dial("tcp", addr, sshConfig)
+// getClient returns the SFTP client from the manager, creating a connection if necessary
+func (s *SFTPBackend) getClient() (sftpClientInterface, error) {
+	conn, err := s.manager.GetConnection()
 	if err != nil {
-		return fmt.Errorf("connect to SSH server: %w", err)
+		return nil, fmt.Errorf("get SFTP connection: %w", err)
 	}
-
-	// Create SFTP client
-	sftpClient, err := sftp.NewClient(sshClient)
-	if err != nil {
-		_ = sshClient.Close()
-		return fmt.Errorf("create SFTP client: %w", err)
-	}
-
-	s.sshClient = sshClient
-	s.client = &sftpClientAdapter{sftpClient}
-
-	return nil
+	return &sftpClientAdapter{conn.GetClient()}, nil
 }
 
 func (s *SFTPBackend) GetBackendType() BackendType {
@@ -158,18 +117,20 @@ func (s *SFTPBackend) GetCacheIdentifier() string {
 }
 
 func (s *SFTPBackend) Close() error {
-	if s.client != nil {
-		_ = s.client.Close()
-	}
-	if s.sshClient != nil {
-		_ = s.sshClient.Close()
+	if s.manager != nil {
+		return s.manager.Close()
 	}
 	return nil
 }
 
 func (s *SFTPBackend) CheckFileExists(ctx context.Context, key string) (*FileMetadata, error) {
+	client, err := s.getClient()
+	if err != nil {
+		return nil, fmt.Errorf("get client: %w", err)
+	}
+
 	remotePath := filepath.Clean(key)
-	stat, err := s.client.Stat(remotePath)
+	stat, err := client.Stat(remotePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &FileMetadata{Exists: false}, nil
@@ -243,18 +204,23 @@ func (s *SFTPBackend) uploadFileWithResume(ctx context.Context, filePath, key st
 }
 
 func (s *SFTPBackend) UploadFromReader(ctx context.Context, reader io.Reader, key string, opts *UploadOptions) error {
+	client, err := s.getClient()
+	if err != nil {
+		return fmt.Errorf("get client: %w", err)
+	}
+
 	remotePath := filepath.Clean(key)
 
 	s.lockFile(remotePath)
 	defer s.unlockFile(remotePath)
 
 	// Ensure remote directory exists
-	if err := s.client.MkdirAll(filepath.Dir(remotePath)); err != nil {
+	if err := client.MkdirAll(filepath.Dir(remotePath)); err != nil {
 		return fmt.Errorf("create remote directory: %w", err)
 	}
 
 	// Create remote file
-	remoteFile, err := s.client.Create(remotePath)
+	remoteFile, err := client.Create(remotePath)
 	if err != nil {
 		return fmt.Errorf("create remote file: %w", err)
 	}
@@ -292,9 +258,14 @@ func (s *SFTPBackend) getLocalFileSize(filePath string) (int64, error) {
 }
 
 func (s *SFTPBackend) getRemoteFileSize(remoteKey string) (int64, bool, error) {
+	client, err := s.getClient()
+	if err != nil {
+		return 0, false, fmt.Errorf("get client: %w", err)
+	}
+
 	remotePath := filepath.Clean(remoteKey)
 
-	stat, err := s.client.Stat(remotePath)
+	stat, err := client.Stat(remotePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return 0, false, nil // File does not exist
@@ -317,10 +288,15 @@ func (s *SFTPBackend) generateTempKey(key, hash string) string {
 }
 
 func (s *SFTPBackend) uploadWithResume(ctx context.Context, filePath, tempKey string, startOffset int64) error {
+	client, err := s.getClient()
+	if err != nil {
+		return fmt.Errorf("get client: %w", err)
+	}
+
 	remotePath := filepath.Clean(tempKey)
 
 	// Ensure remote directory exists
-	if err := s.client.MkdirAll(filepath.Dir(remotePath)); err != nil {
+	if err := client.MkdirAll(filepath.Dir(remotePath)); err != nil {
 		return fmt.Errorf("create remote directory: %w", err)
 	}
 
@@ -342,10 +318,10 @@ func (s *SFTPBackend) uploadWithResume(ctx context.Context, filePath, tempKey st
 	var remoteFile io.WriteCloser
 	if startOffset > 0 {
 		// Open for append
-		remoteFile, err = s.client.OpenFile(remotePath, os.O_WRONLY|os.O_APPEND)
+		remoteFile, err = client.OpenFile(remotePath, os.O_WRONLY|os.O_APPEND)
 	} else {
 		// Create new file
-		remoteFile, err = s.client.Create(remotePath)
+		remoteFile, err = client.Create(remotePath)
 	}
 	if err != nil {
 		return fmt.Errorf("open remote file: %w", err)
@@ -361,16 +337,21 @@ func (s *SFTPBackend) uploadWithResume(ctx context.Context, filePath, tempKey st
 }
 
 func (s *SFTPBackend) renameFile(tempKey, finalKey string) error {
+	client, err := s.getClient()
+	if err != nil {
+		return fmt.Errorf("get client: %w", err)
+	}
+
 	tempPath := filepath.Clean(tempKey)
 	finalPath := filepath.Clean(finalKey)
 
 	// Ensure final directory exists
-	if err := s.client.MkdirAll(filepath.Dir(finalPath)); err != nil {
+	if err := client.MkdirAll(filepath.Dir(finalPath)); err != nil {
 		return fmt.Errorf("create final directory: %w", err)
 	}
 
 	// Rename temp file to final file
-	if err := s.client.Rename(tempPath, finalPath); err != nil {
+	if err := client.Rename(tempPath, finalPath); err != nil {
 		return fmt.Errorf("rename file: %w", err)
 	}
 
