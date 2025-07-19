@@ -120,25 +120,6 @@ func (s *SFTPBackend) UploadFile(ctx context.Context, filePath, key string, opts
 	s.lockFile(key)
 	defer s.unlockFile(key)
 
-	if opts.Overwrite {
-		metadata, err := s.CheckFileExists(ctx, key)
-		if err != nil {
-			return fmt.Errorf("check file exists: %w", err)
-		}
-
-		if metadata.Exists {
-			client, err := s.getClient()
-			if err != nil {
-				return fmt.Errorf("get client: %w", err)
-			}
-			if err := client.Remove(key); err != nil {
-				return fmt.Errorf("remove file: %w", err)
-			}
-
-			logger.Info("file exists, removing due to overwrite", map[string]any{"key": key})
-		}
-	}
-
 	localSize, err := s.getLocalFileSize(filePath)
 	if err != nil {
 		return fmt.Errorf("get local file size: %w", err)
@@ -293,7 +274,7 @@ func (s *SFTPBackend) renameFile(tempKey, finalKey string) error {
 	}
 
 	// Rename temp file to final file
-	if err := client.Rename(tempPath, finalPath); err != nil {
+	if err := client.PosixRename(tempPath, finalPath); err != nil {
 		return fmt.Errorf("rename file: %w", err)
 	}
 
