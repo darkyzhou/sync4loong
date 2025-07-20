@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/go-logfmt/logfmt"
 )
@@ -34,7 +33,6 @@ func (l *Logger) log(level string, msg string, fields map[string]any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	_ = l.encoder.EncodeKeyval("time", time.Now().Format(time.RFC3339))
 	_ = l.encoder.EncodeKeyval("level", level)
 	_ = l.encoder.EncodeKeyval("msg", msg)
 
