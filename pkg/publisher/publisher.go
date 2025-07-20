@@ -11,7 +11,7 @@ import (
 
 	"sync4loong/pkg/config"
 	"sync4loong/pkg/logger"
-	"sync4loong/pkg/task"
+	"sync4loong/pkg/shared"
 
 	"github.com/hibiken/asynq"
 )
@@ -38,13 +38,6 @@ func NewPublisher(config *config.Config) (*Publisher, error) {
 
 func (p *Publisher) Close() {
 	_ = p.client.Close()
-}
-
-type SyncItem struct {
-	From            string `json:"from"`
-	To              string `json:"to"`
-	DeleteAfterSync bool   `json:"delete_after_sync,omitempty"`
-	Overwrite       bool   `json:"overwrite,omitempty"`
 }
 
 // scanFiles recursively scans a directory and returns all file paths
@@ -82,7 +75,7 @@ func (p *Publisher) generateTargetPath(targetPath, filePath, basePath string) st
 }
 
 // PublishFileSyncTaskAsFiles publishes file sync task as individual file tasks
-func (p *Publisher) PublishFileSyncTaskAsFiles(items []SyncItem) error {
+func (p *Publisher) PublishFileSyncTaskAsFiles(items []shared.SyncItem) error {
 	if len(items) == 0 {
 		return fmt.Errorf("at least one sync item is required")
 	}
@@ -145,11 +138,12 @@ func (p *Publisher) PublishFileSyncTaskAsFiles(items []SyncItem) error {
 				}
 			}
 
-			payload := task.FileSyncSinglePayload{
+			payload := shared.FileSyncSinglePayload{
 				FilePath:        file,
 				TargetPath:      targetPath,
 				DeleteAfterSync: item.DeleteAfterSync,
 				Overwrite:       item.Overwrite,
+				Unique:          item.Unique,
 			}
 
 			payloadBytes, err := json.Marshal(payload)
@@ -157,17 +151,29 @@ func (p *Publisher) PublishFileSyncTaskAsFiles(items []SyncItem) error {
 				return fmt.Errorf("marshal payload for %s: %w", file, err)
 			}
 
-			taskObj := asynq.NewTask(task.TaskTypeFileSyncSingle, payloadBytes)
-			_, err = p.client.Enqueue(
-				taskObj,
+			taskObj := asynq.NewTask(shared.TaskTypeFileSyncSingle, payloadBytes)
+
+			enqueueOpts := []asynq.Option{
 				asynq.MaxRetry(p.config.Publish.MaxRetry),
-				asynq.Timeout(time.Duration(p.config.Publish.TimeoutMinutes)*time.Minute),
-				asynq.Retention(24*time.Hour),
-			)
-			if err != nil {
-				return fmt.Errorf("enqueue task for %s: %w", file, err)
+				asynq.Timeout(time.Duration(p.config.Publish.TimeoutMinutes) * time.Minute),
+				asynq.Retention(24 * time.Hour),
 			}
-			totalFiles++
+			if item.Unique {
+				enqueueOpts = append(enqueueOpts, asynq.TaskID(targetPath))
+			}
+
+			if _, err = p.client.Enqueue(taskObj, enqueueOpts...); err != nil {
+				if errors.Is(err, asynq.ErrTaskIDConflict) {
+					logger.Info("task already exists, skipping due to unique constraint", map[string]any{
+						"file_path":   file,
+						"target_path": targetPath,
+					})
+				} else {
+					return fmt.Errorf("enqueue task for %s: %w", file, err)
+				}
+			} else {
+				totalFiles++
+			}
 		}
 	}
 

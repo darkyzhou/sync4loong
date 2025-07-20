@@ -17,9 +17,9 @@ import (
 	"sync4loong/pkg/cache"
 	"sync4loong/pkg/config"
 	"sync4loong/pkg/logger"
+	"sync4loong/pkg/shared"
 	"sync4loong/pkg/ssh"
 	"sync4loong/pkg/storage"
-	"sync4loong/pkg/task"
 )
 
 type FileSyncHandler struct {
@@ -44,7 +44,7 @@ func NewFileSyncHandler(storageBackend storage.StorageBackend, config *config.Co
 
 // HandleSingleFile handles single file sync task
 func (h *FileSyncHandler) HandleSingleFile(ctx context.Context, asynqTask *asynq.Task) error {
-	var payload task.FileSyncSinglePayload
+	var payload shared.FileSyncSinglePayload
 	if err := json.Unmarshal(asynqTask.Payload(), &payload); err != nil {
 		h.logger.Error("failed to unmarshal single file payload", err, nil)
 		return fmt.Errorf("unmarshal single file payload: %w", asynq.SkipRetry)

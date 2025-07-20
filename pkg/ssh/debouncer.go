@@ -11,7 +11,7 @@ import (
 
 	"sync4loong/pkg/config"
 	"sync4loong/pkg/logger"
-	"sync4loong/pkg/task"
+	"sync4loong/pkg/shared"
 )
 
 const (
@@ -61,7 +61,7 @@ func (d *Debouncer) TriggerSSH(ctx context.Context) error {
 		}
 
 		delay := time.Duration(d.config.SSHDebounceMinutes) * time.Minute
-		payload := task.SSHPayload{
+		payload := shared.SSHPayload{
 			Command: d.config.SSHCommand,
 		}
 
@@ -70,7 +70,7 @@ func (d *Debouncer) TriggerSSH(ctx context.Context) error {
 			return fmt.Errorf("failed to marshal SSH payload: %w", err)
 		}
 
-		sshTask := asynq.NewTask(task.TaskTypeSSHCommand, taskPayload)
+		sshTask := asynq.NewTask(shared.TaskTypeSSHCommand, taskPayload)
 		if _, err := d.asyncClient.Enqueue(sshTask, asynq.ProcessIn(delay)); err != nil {
 			return fmt.Errorf("failed to enqueue SSH task: %w", err)
 		}

@@ -13,6 +13,7 @@ import (
 	"sync4loong/pkg/config"
 	"sync4loong/pkg/logger"
 	"sync4loong/pkg/publisher"
+	"sync4loong/pkg/shared"
 )
 
 type HTTPHandler struct {
@@ -22,14 +23,7 @@ type HTTPHandler struct {
 	asynqmon  *asynqmon.HTTPHandler
 }
 
-type PublishRequest []SyncItem
-
-type SyncItem struct {
-	From            string `json:"from"`
-	To              string `json:"to"`
-	DeleteAfterSync bool   `json:"delete_after_sync,omitempty"`
-	Overwrite       bool   `json:"overwrite,omitempty"`
-}
+type PublishRequest []shared.SyncItem
 
 type PublishResponse struct {
 	Success bool   `json:"success"`
@@ -130,17 +124,7 @@ func (h *HTTPHandler) PublishHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	items := make([]publisher.SyncItem, len(req))
-	for i, item := range req {
-		items[i] = publisher.SyncItem{
-			From:            item.From,
-			To:              item.To,
-			DeleteAfterSync: item.DeleteAfterSync,
-			Overwrite:       item.Overwrite,
-		}
-	}
-
-	if err := h.publisher.PublishFileSyncTaskAsFiles(items); err != nil {
+	if err := h.publisher.PublishFileSyncTaskAsFiles(req); err != nil {
 		h.logger.Error("failed to publish file sync tasks", err, map[string]any{
 			"items_count": len(req),
 		})

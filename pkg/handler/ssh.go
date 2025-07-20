@@ -13,8 +13,8 @@ import (
 
 	"sync4loong/pkg/config"
 	"sync4loong/pkg/logger"
+	"sync4loong/pkg/shared"
 	"sync4loong/pkg/ssh"
-	"sync4loong/pkg/task"
 )
 
 type SSHHandler struct {
@@ -36,7 +36,7 @@ func NewSSHHandler(config *config.DaemonConfig, logger *logger.Logger, redisClie
 }
 
 func (h *SSHHandler) ProcessTask(ctx context.Context, t *asynq.Task) error {
-	var payload task.SSHPayload
+	var payload shared.SSHPayload
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
 		return fmt.Errorf("failed to unmarshal SSH payload: %w", err)
 	}
@@ -47,7 +47,7 @@ func (h *SSHHandler) ProcessTask(ctx context.Context, t *asynq.Task) error {
 	}
 	if !shouldExecute {
 		delay := time.Duration(h.config.SSHDebounceMinutes) * time.Minute
-		newTask := asynq.NewTask(task.TaskTypeSSHCommand, t.Payload())
+		newTask := asynq.NewTask(shared.TaskTypeSSHCommand, t.Payload())
 
 		if _, err := h.asyncClient.Enqueue(newTask, asynq.ProcessIn(delay)); err != nil {
 			h.logger.Error("Failed to reschedule SSH task", err, map[string]any{

@@ -13,8 +13,8 @@ import (
 	"sync4loong/pkg/handler"
 	httpHandler "sync4loong/pkg/http"
 	"sync4loong/pkg/logger"
+	"sync4loong/pkg/shared"
 	"sync4loong/pkg/storage"
-	"sync4loong/pkg/task"
 )
 
 type DaemonService struct {
@@ -151,8 +151,8 @@ func (d *DaemonService) Start() error {
 
 	logger.Info("starting Asynq server", nil)
 	mux := asynq.NewServeMux()
-	mux.HandleFunc(task.TaskTypeFileSyncSingle, d.fileSyncHandler.HandleSingleFile)
-	mux.HandleFunc(task.TaskTypeSSHCommand, d.sshHandler.ProcessTask)
+	mux.HandleFunc(shared.TaskTypeFileSyncSingle, d.fileSyncHandler.HandleSingleFile)
+	mux.HandleFunc(shared.TaskTypeSSHCommand, d.sshHandler.ProcessTask)
 	return d.server.Run(mux)
 }
 
